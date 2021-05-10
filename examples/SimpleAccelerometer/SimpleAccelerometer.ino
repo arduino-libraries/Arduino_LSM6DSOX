@@ -1,15 +1,15 @@
 /*
-  Arduino LSM6DS3 - Simple Accelerometer
+  Arduino LSM6DSOX - Simple Accelerometer
 
-  This example reads the acceleration values from the LSM6DS3
+  This example reads the acceleration values from the LSM6DSOX
   sensor and continuously prints them to the Serial Monitor
   or Serial Plotter.
 
   The circuit:
-  - Arduino Uno WiFi Rev 2 or Arduino Nano 33 IoT
+  - Arduino Nano RP2040 Connect
 
-  created 10 Jul 2019
-  by Riccardo Rizzo
+  created 10 May 2021
+  by Arturo Guadalupi
 
   This example code is in the public domain.
 */
