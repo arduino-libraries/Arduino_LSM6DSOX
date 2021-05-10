@@ -1,5 +1,5 @@
 /*
-  This file is part of the Arduino_LSM6DS3 library.
+  This file is part of the Arduino_LSM6DSOX library.
   Copyright (c) 2021 Arduino SA. All rights reserved.
 
   This library is free software; you can redistribute it and/or
