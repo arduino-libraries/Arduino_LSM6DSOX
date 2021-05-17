@@ -8,5 +8,3 @@ image:https://github.com/{repository-owner}/{repository-name}/actions/workflows/
 image:https://github.com/{repository-owner}/{repository-name}/actions/workflows/spell-check.yml/badge.svg["Spell Check status", link="https://github.com/{repository-owner}/{repository-name}/actions/workflows/spell-check.yml"]
 
 Allows you to read accelerometer and gyroscope values of the LSM6DSOX IMU on your Arduino Nano RP2040 Connect.
-
-For more information about this library please visit us at https://www.arduino.cc/en/Reference/{repository-name}
