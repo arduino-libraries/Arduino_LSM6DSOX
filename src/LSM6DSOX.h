@@ -79,9 +79,13 @@ class LSM6DSOXClass {
     virtual int setGyroscopeConfig(uint8_t rate, uint8_t scale); // Set sampling rate and full scale of the sensor
     virtual int gyroscopeAvailable(); // Check for available data from gyroscope
 
+    // Interrupt on data ready
+    virtual int setInterruptGyro(void (*callback)());
+    virtual int setInterruptAcc(void (*callback)() );
 
   private:
 
+    uint8_t _INT1_CTRL = 0x00;
     // Set the Accelerometer control register to work at 104 Hz, 4 g,and in bypass mode and enable ODR/4
     // low pass filter (check figure9 of LSM6DSOX's datasheet)
     uint8_t _CTRL1_XL = 0x4A;
@@ -91,6 +95,7 @@ class LSM6DSOXClass {
     uint8_t _CTRL7_G  = 0x00;
     // Set the ODR config register to ODR/4
     uint8_t _CTRL8_XL = 0x09;
+
 
     int readRegister(uint8_t address);
     int readRegisters(uint8_t address, uint8_t* data, size_t length);

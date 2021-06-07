@@ -34,6 +34,8 @@
 #define LSM6DSOX_CTRL6_C            0X15
 #define LSM6DSOX_CTRL7_G            0X16
 #define LSM6DSOX_CTRL8_XL           0X17
+#define LSM6DSOX_CTRL9_XL           0X18
+#define LSM6DSOX_INT1_CTRL          0x0D
 
 #define LSM6DSOX_OUTX_L_G           0X22
 #define LSM6DSOX_OUTX_H_G           0X23
@@ -317,6 +319,26 @@ int LSM6DSOXClass::gyroscopeAvailable()
   }
 
   return 0;
+}
+
+int LSM6DSOXClass::setInterruptGyro(void (*callback)())
+{
+
+  pinMode(21, INPUT);
+  attachInterrupt(digitalPinToInterrupt(21),callback, RISING);
+
+  _INT1_CTRL = 1<<1;
+  return writeRegister(LSM6DSOX_INT1_CTRL, _INT1_CTRL);
+}
+
+int LSM6DSOXClass::setInterruptAcc(void (*callback)())
+{
+
+  pinMode(21, INPUT);
+  attachInterrupt(digitalPinToInterrupt(21),callback, RISING);
+
+  _INT1_CTRL = 1<<0;
+  return writeRegister(LSM6DSOX_INT1_CTRL, _INT1_CTRL);
 }
 
 int LSM6DSOXClass::readRegister(uint8_t address)
