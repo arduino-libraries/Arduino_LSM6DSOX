@@ -13,7 +13,5 @@ The ArduinoLSM6DSOX library takes care of the sensor initialization and sets its
 
 - Accelerometer range is set at ±4 g with a resolution of 0.122 mg.
 - Gyroscope range is set at ±2000 dps with a resolution of 70 mdps.
-- Magnetometer range is set at ±400 uT with a resolution of 0.014 uT.
 - Accelerometer and gyrospcope output data rate is fixed at 104 Hz.
-- Magnetometer output data rate is fixed at 20 Hz.
 
