@@ -1,4 +1,8 @@
 /*
+  Extended by Tore Leikanger, 1st of June 2021, to include control over
+  the sample rate and full scale of the accelerometer and gyroscope 
+  sensors.
+  
   This file is part of the Arduino_LSM6DSOX library.
   Copyright (c) 2021 Arduino SA. All rights reserved.
 
@@ -30,6 +34,8 @@
 #define LSM6DSOX_CTRL6_C            0X15
 #define LSM6DSOX_CTRL7_G            0X16
 #define LSM6DSOX_CTRL8_XL           0X17
+#define LSM6DSOX_CTRL9_XL           0X18
+#define LSM6DSOX_INT1_CTRL          0x0D
 
 #define LSM6DSOX_OUTX_L_G           0X22
 #define LSM6DSOX_OUTX_H_G           0X23
@@ -82,17 +88,17 @@ int LSM6DSOXClass::begin()
   }
 
   //set the gyroscope control register to work at 104 Hz, 2000 dps and in bypass mode
-  writeRegister(LSM6DSOX_CTRL2_G, 0x4C);
+  writeRegister(LSM6DSOX_CTRL2_G, _CTRL2_G);
 
   // Set the Accelerometer control register to work at 104 Hz, 4 g,and in bypass mode and enable ODR/4
   // low pass filter (check figure9 of LSM6DSOX's datasheet)
-  writeRegister(LSM6DSOX_CTRL1_XL, 0x4A);
+  writeRegister(LSM6DSOX_CTRL1_XL, _CTRL1_XL);
 
   // set gyroscope power mode to high performance and bandwidth to 16 MHz
-  writeRegister(LSM6DSOX_CTRL7_G, 0x00);
+  writeRegister(LSM6DSOX_CTRL7_G, _CTRL7_G);
 
   // Set the ODR config register to ODR/4
-  writeRegister(LSM6DSOX_CTRL8_XL, 0x09);
+  writeRegister(LSM6DSOX_CTRL8_XL, _CTRL8_XL);
 
   return 1;
 }
@@ -138,9 +144,104 @@ int LSM6DSOXClass::accelerationAvailable()
   return 0;
 }
 
+float LSM6DSOXClass::sampleRate(uint8_t cfg)
+{
+  switch ( cfg ) 
+  {
+    case LSM6DSOX_ODR_OFF :
+      return 0.0F;
+    case LSM6DSOX_ODR_12_5_HZ:
+      return 12.5F;
+    case LSM6DSOX_ODR_26_HZ:
+      return 26.0F;
+    case LSM6DSOX_ODR_52_HZ:
+      return 52.0F;
+    case LSM6DSOX_ODR_104_HZ:
+      return 104.0F;
+    case LSM6DSOX_ODR_208_HZ:
+      return 208.0F;
+    case LSM6DSOX_ODR_416_HZ:
+      return 416.0F;
+    case LSM6DSOX_ODR_833_HZ:
+      return 833.0F;
+    case LSM6DSOX_ODR_1K66_HZ:
+      return 1660.0F;
+    case LSM6DSOX_ODR_3K33_HZ:
+      return 3330.0F;
+    case LSM6DSOX_ODR_6K66_HZ:
+      return 6660.0F;
+    default:
+      return -1.0F;
+  }
+}
+
 float LSM6DSOXClass::accelerationSampleRate()
 {
-  return 104.0F;
+  return sampleRate(_CTRL1_XL>>4);
+}
+
+float LSM6DSOXClass::accelerationFullScale()
+{
+  switch (_CTRL1_XL>>2) 
+  {
+    case LSM6DSOX_ACCEL_FS_2G:
+      return 2.0F;
+    case LSM6DSOX_ACCEL_FS_4G:
+      return 4.0F;
+    case LSM6DSOX_ACCEL_FS_8G:
+      return 8.0F;
+    case LSM6DSOX_ACCEL_FS_16G:
+      return 16.0F;
+    default:
+      return -1.0F;
+  }
+}
+
+int LSM6DSOXClass::setAccelerationSampleRate(uint8_t rate)
+{
+  _CTRL1_XL &= 0x0F;
+  _CTRL1_XL |= rate<<4;
+  return writeRegister(LSM6DSOX_CTRL1_XL, _CTRL1_XL);
+}
+
+int LSM6DSOXClass::setAccelerationFullScale(uint8_t scale)
+{
+
+  _CTRL1_XL &= ~0x0C;
+  _CTRL1_XL |= scale<<2;
+
+  if ( scale == LSM6DSOX_ACCEL_FS_16G ){
+    _CTRL8_XL &= ~0x02;
+  }
+  else {
+    _CTRL8_XL |= 0x02;
+  }
+
+  if ( writeRegister(LSM6DSOX_CTRL8_XL, _CTRL8_XL) == 0 ) {
+    return 0;
+  };
+
+  return writeRegister(LSM6DSOX_CTRL1_XL, _CTRL1_XL);
+}
+
+int LSM6DSOXClass::setAccelerationConfig(uint8_t rate, uint8_t scale)
+{
+  _CTRL1_XL &= 0x09;
+  _CTRL1_XL |= rate<<4;
+  _CTRL1_XL |= scale<<2;
+
+  if ( scale == LSM6DSOX_ACCEL_FS_16G ){
+    _CTRL8_XL &= ~0x02;
+  }
+  else {
+    _CTRL8_XL |= 0x02;
+  }
+
+  if ( writeRegister(LSM6DSOX_CTRL8_XL, _CTRL8_XL) == 0 ) {
+    return 0;
+  }
+
+  return writeRegister(LSM6DSOX_CTRL1_XL, _CTRL1_XL);
 }
 
 int LSM6DSOXClass::readGyroscope(float& x, float& y, float& z)
@@ -162,6 +263,55 @@ int LSM6DSOXClass::readGyroscope(float& x, float& y, float& z)
   return 1;
 }
 
+float LSM6DSOXClass::gyroscopeSampleRate()
+{
+  return sampleRate(_CTRL2_G>>4);
+}
+
+float LSM6DSOXClass::gyroscopeFullScale()
+{
+  switch (_CTRL2_G>>1) 
+  {
+    case LSM6DSOX_GYRO_FS_125DPS:
+      return 125.0F;
+    case LSM6DSOX_GYRO_FS_250DPS:
+      return 250.0F;
+    case LSM6DSOX_GYRO_FS_500DPS:
+      return 500.0F;
+    case LSM6DSOX_GYRO_FS_1000DPS:
+      return 1000.0F;
+    case LSM6DSOX_GYRO_FS_2000DPS:
+      return 2000.0F;
+    default:
+      return -1.0F;
+  }
+}
+
+int LSM6DSOXClass::setGyroscopeSampleRate(uint8_t rate)
+{
+  _CTRL2_G &= 0x0F;
+  _CTRL2_G |= rate<<4;
+  return writeRegister(LSM6DSOX_CTRL2_G, _CTRL2_G);
+}
+
+int LSM6DSOXClass::setGyroscopeFullScale(uint8_t scale)
+{
+
+  _CTRL2_G &= ~0x0E;
+  _CTRL2_G |= scale<<1;
+
+  return writeRegister(LSM6DSOX_CTRL2_G, _CTRL2_G);
+}
+
+int LSM6DSOXClass::setGyroscopeConfig(uint8_t rate, uint8_t scale)
+{
+  _CTRL2_G &= 0x01;
+  _CTRL2_G |= rate<<4;
+  _CTRL2_G |= scale<<1;
+
+  return writeRegister(LSM6DSOX_CTRL2_G, _CTRL2_G);
+}
+
 int LSM6DSOXClass::gyroscopeAvailable()
 {
   if (readRegister(LSM6DSOX_STATUS_REG) & 0x02) {
@@ -171,9 +321,24 @@ int LSM6DSOXClass::gyroscopeAvailable()
   return 0;
 }
 
-float LSM6DSOXClass::gyroscopeSampleRate()
+int LSM6DSOXClass::setInterruptGyro(void (*callback)())
 {
-  return 104.0F;
+
+  pinMode(21, INPUT);
+  attachInterrupt(digitalPinToInterrupt(21),callback, RISING);
+
+  _INT1_CTRL = 1<<1;
+  return writeRegister(LSM6DSOX_INT1_CTRL, _INT1_CTRL);
+}
+
+int LSM6DSOXClass::setInterruptAcc(void (*callback)())
+{
+
+  pinMode(21, INPUT);
+  attachInterrupt(digitalPinToInterrupt(21),callback, RISING);
+
+  _INT1_CTRL = 1<<0;
+  return writeRegister(LSM6DSOX_INT1_CTRL, _INT1_CTRL);
 }
 
 int LSM6DSOXClass::readRegister(uint8_t address)
