@@ -41,6 +41,9 @@ class LSM6DSOXClass {
     virtual float gyroscopeSampleRate(); // Sampling rate of the sensor.
     virtual int gyroscopeAvailable(); // Check for available data from gyroscope
 
+    // Temperature
+    int readTemperature(int & temperature_deg);
+    int temperatureAvailable();
 
   private:
     int readRegister(uint8_t address);

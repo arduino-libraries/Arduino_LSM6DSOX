@@ -31,6 +31,9 @@
 #define LSM6DSOX_CTRL7_G            0X16
 #define LSM6DSOX_CTRL8_XL           0X17
 
+#define LSM6DSOX_OUT_TEMP_L         0X20
+#define LSM6DSOX_OUT_TEMP_H         0X21
+
 #define LSM6DSOX_OUTX_L_G           0X22
 #define LSM6DSOX_OUTX_H_G           0X23
 #define LSM6DSOX_OUTY_L_G           0X24
@@ -165,6 +168,33 @@ int LSM6DSOXClass::readGyroscope(float& x, float& y, float& z)
 int LSM6DSOXClass::gyroscopeAvailable()
 {
   if (readRegister(LSM6DSOX_STATUS_REG) & 0x02) {
+    return 1;
+  }
+
+  return 0;
+}
+
+int LSM6DSOXClass::readTemperature(int & temperature_deg)
+{
+  /* Read the raw temperature from the sensor. */
+  int16_t temperature_raw = 0;
+
+  if (readRegisters(LSM6DSOX_OUT_TEMP_L, reinterpret_cast<uint8_t*>(&temperature_raw), sizeof(temperature_raw)) != 1) {
+    return 0;
+  }
+
+  /* Convert to °C. */
+  static int const TEMPERATURE_LSB_per_DEG = 256;
+  static int const TEMPERATURE_OFFSET_DEG = 25;
+
+  temperature_deg = (static_cast<int>(temperature_raw) / TEMPERATURE_LSB_per_DEG) + TEMPERATURE_OFFSET_DEG;
+
+  return 1;
+}
+
+int LSM6DSOXClass::temperatureAvailable()
+{
+  if (readRegister(LSM6DSOX_STATUS_REG) & 0x04) {
     return 1;
   }
 

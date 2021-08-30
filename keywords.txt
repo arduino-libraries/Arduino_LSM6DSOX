@@ -21,6 +21,8 @@ gyroscopeAvailable	KEYWORD2
 accelerationAvailable	KEYWORD2
 accelerationSampleRate	KEYWORD2
 gyroscopeSampleRate	KEYWORD2
+readTemperature	KEYWORD2
+temperatureAvailable	KEYWORD2
 
 #######################################
 # Constants
