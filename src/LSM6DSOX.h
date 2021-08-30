@@ -26,20 +26,20 @@ class LSM6DSOXClass {
   public:
     LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress);
     LSM6DSOXClass(SPIClass& spi, int csPin, int irqPin);
-    virtual ~LSM6DSOXClass();
+    ~LSM6DSOXClass();
 
     int begin();
     void end();
 
     // Accelerometer
-    virtual int readAcceleration(float& x, float& y, float& z); // Results are in g (earth gravity).
-    virtual float accelerationSampleRate(); // Sampling rate of the sensor.
-    virtual int accelerationAvailable(); // Check for available data from accelerometer
+    int readAcceleration(float& x, float& y, float& z); // Results are in g (earth gravity).
+    float accelerationSampleRate(); // Sampling rate of the sensor.
+    int accelerationAvailable(); // Check for available data from accelerometer
 
     // Gyroscope
-    virtual int readGyroscope(float& x, float& y, float& z); // Results are in degrees/second.
-    virtual float gyroscopeSampleRate(); // Sampling rate of the sensor.
-    virtual int gyroscopeAvailable(); // Check for available data from gyroscope
+    int readGyroscope(float& x, float& y, float& z); // Results are in degrees/second.
+    float gyroscopeSampleRate(); // Sampling rate of the sensor.
+    int gyroscopeAvailable(); // Check for available data from gyroscope
 
     // Temperature
     int readTemperature(int & temperature_deg);
