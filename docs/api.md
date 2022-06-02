@@ -338,3 +338,67 @@ Serial.println("X\tY\tZ");
 * [accelerationAvailable()](#accelerationavailable)
 * [gyroscopeAvailable()](#gyroscopeavailable)
 * [accelerationSampleRate()](#accelerationsamplerate)
+
+### `readTemperature()`
+
+Reads the temperature from the sensor (Celsius).
+
+#### Syntax 
+
+```
+IMU.readTemperature()
+```
+
+#### Parameters
+
+None.
+
+#### Returns
+
+The temperature in Celsius.
+
+#### Example
+
+```
+if (IMU.temperatureAvailable())
+  {
+    int temperature_deg = 0;
+    IMU.readTemperature(temperature_deg);
+
+    Serial.print("LSM6DSOX Temperature = ");
+    Serial.print(temperature_deg);
+    Serial.println(" °C");
+  }
+```
+
+### `temperatureAvailable()`
+
+Checks if temperature data is available.
+
+#### Syntax 
+
+```
+IMU.temperatureAvailable()
+```
+
+#### Parameters
+
+None.
+
+#### Returns
+
+1 on success, 0 on failure.
+
+#### Example
+
+```
+if (IMU.temperatureAvailable())
+  {
+    int temperature_deg = 0;
+    IMU.readTemperature(temperature_deg);
+
+    Serial.print("LSM6DSOX Temperature = ");
+    Serial.print(temperature_deg);
+    Serial.println(" °C");
+  }
+```
