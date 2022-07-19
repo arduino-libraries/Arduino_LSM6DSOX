@@ -174,7 +174,7 @@ int LSM6DSOXClass::gyroscopeAvailable()
   return 0;
 }
 
-int LSM6DSOXClass::readTemperature(int & temperature_deg)
+int LSM6DSOXClass::readTemperature(float& temperature_deg)
 {
   /* Read the raw temperature from the sensor. */
   int16_t temperature_raw = 0;
@@ -187,7 +187,7 @@ int LSM6DSOXClass::readTemperature(int & temperature_deg)
   static int const TEMPERATURE_LSB_per_DEG = 256;
   static int const TEMPERATURE_OFFSET_DEG = 25;
 
-  temperature_deg = (static_cast<int>(temperature_raw) / TEMPERATURE_LSB_per_DEG) + TEMPERATURE_OFFSET_DEG;
+  temperature_deg = (static_cast<float>(temperature_raw) / TEMPERATURE_LSB_per_DEG) + TEMPERATURE_OFFSET_DEG;
 
   return 1;
 }
