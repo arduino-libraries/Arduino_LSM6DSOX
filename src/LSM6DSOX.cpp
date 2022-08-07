@@ -174,21 +174,48 @@ int LSM6DSOXClass::gyroscopeAvailable()
   return 0;
 }
 
-int LSM6DSOXClass::readTemperature(int & temperature_deg)
+/*
+ * Datasheet:https://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=&ved=2ahUKEwjc9uzl47X5AhWvkokEHXYPCFAQFnoECBEQAQ&url=https%3A%2F%2Fwww.st.com%2Fresource%2Fen%2Fdatasheet%2Flsm6dsox.pdf&usg=AOvVaw3yto92UevKnnlUg845zeDh
+ * Page 70
+ * 
+ * It says temperature is stored in 16 bit space with 2's complement. In oher words, the temperature is 15 bit... which covers 
+ * awfully large number. Not -40 degree to 85 degree.
+ * 
+ * Considering how ADCs usually work, this big 16 bit number seems to be a quantization for 
+ * the sensor's full range: -40 to 85, 125 degrees.
+ * 
+ * Also, it says (at Table 4) the value is zero when the temperature is around 25°C.
+ * 
+ * So I've devised this code... but it seems temperature read itself is a bit higher than
+ * real temperature.
+ * 
+ */
+int LSM6DSOXClass::readTemperature(float & temperature_deg)
 {
   /* Read the raw temperature from the sensor. */
-  int16_t temperature_raw = 0;
+  uint8_t temp_L = 0;
+  uint8_t temp_H = 0;
+  uint16_t temp_raw = 0;
+  int16_t temp_conv = 0;
 
-  if (readRegisters(LSM6DSOX_OUT_TEMP_L, reinterpret_cast<uint8_t*>(&temperature_raw), sizeof(temperature_raw)) != 1) {
+  if (readRegisters(LSM6DSOX_OUT_TEMP_L, reinterpret_cast<uint8_t*>(&temp_L), sizeof(temp_L)) != 1 ) {
     return 0;
   }
+  if (readRegisters(LSM6DSOX_OUT_TEMP_H, reinterpret_cast<uint8_t*>(&temp_H), sizeof(temp_H)) != 1 ) {
+    return 0;
+  }
+  
+  temp_raw += ((int16_t)temp_H & 0b0000000011111111);
+  temp_raw = ((temp_raw << 8) & 0b1111111100000000);
+  temp_raw += ((int16_t)temp_L & 0b0000000011111111);
+  temp_conv = (int16_t)temp_raw;
 
   /* Convert to °C. */
-  static int const TEMPERATURE_LSB_per_DEG = 256;
-  static int const TEMPERATURE_OFFSET_DEG = 25;
+  float fs = 125.0; /* -40 to 85 */
+  static float const TEMPERATURE_OFFSET_DEG = 25.0;
 
-  temperature_deg = (static_cast<int>(temperature_raw) / TEMPERATURE_LSB_per_DEG) + TEMPERATURE_OFFSET_DEG;
-
+  temperature_deg = (static_cast<float>(temp_conv)/static_cast<float>(1<<16))*fs + TEMPERATURE_OFFSET_DEG;
+  
   return 1;
 }
 
