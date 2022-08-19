@@ -79,7 +79,7 @@ int LSM6DSOXClass::begin()
     _wire->begin();
   }
 
-  if (readRegister(LSM6DSOX_WHO_AM_I_REG) != 0x6C) {
+  if (!(readRegister(LSM6DSOX_WHO_AM_I_REG) == 0x6C || readRegister(LSM6DSOX_WHO_AM_I_REG) == 0x69)) {
     end();
     return 0;
   }
