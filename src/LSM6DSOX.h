@@ -42,7 +42,8 @@ class LSM6DSOXClass {
     int gyroscopeAvailable(); // Check for available data from gyroscope
 
     // Temperature
-    int readTemperature(int & temperature_deg);
+    int readTemperature(int& temperature_deg);
+    int readTemperatureFloat(float& temperature_deg);
     int temperatureAvailable();
 
   private:
