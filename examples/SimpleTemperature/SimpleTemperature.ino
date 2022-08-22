@@ -32,11 +32,16 @@ void loop()
 {
   if (IMU.temperatureAvailable())
   {
-    float temperature_deg = 0;
-    IMU.readTemperature(temperature_deg);
+    int temperature_int = 0;
+    float temperature_float = 0;
+    IMU.readTemperature(temperature_int);
+    IMU.readTemperatureFloat(temperature_float);
 
     Serial.print("LSM6DSOX Temperature = ");
-    Serial.print(temperature_deg);
+    Serial.print(temperature_int);
+    Serial.print(" (");
+    Serial.print(temperature_float);
+    Serial.print(")");
     Serial.println(" °C");
   }
 }
