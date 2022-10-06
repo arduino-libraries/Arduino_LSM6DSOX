@@ -265,8 +265,10 @@ int LSM6DSOXClass::writeRegister(uint8_t address, uint8_t value)
   return 1;
 }
 
+#ifdef IMU_INCLUDED
 #ifdef LSM6DS_DEFAULT_SPI
 LSM6DSOXClass IMU(LSM6DS_DEFAULT_SPI, PIN_SPI_SS1, LSM6DS_INT);
 #else
 LSM6DSOXClass IMU(Wire, LSM6DSOX_ADDRESS);
+#endif
 #endif

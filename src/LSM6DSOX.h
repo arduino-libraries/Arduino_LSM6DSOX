@@ -20,7 +20,9 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <SPI.h>
+#include "ArduinoIMU.h"
 
+#define IMU_INCLUDED !HAS_INCLUDE_IMU
 
 class LSM6DSOXClass {
   public:
@@ -60,5 +62,6 @@ class LSM6DSOXClass {
 
     SPISettings _spiSettings;
 };
-
-extern LSM6DSOXClass IMU;
+#ifdef IMU_INCLUDED
+  extern LSM6DSOXClass IMU;
+#endif
