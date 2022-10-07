@@ -21,7 +21,6 @@
 #include <Wire.h>
 #include <SPI.h>
 
-
 class LSM6DSOXClass {
   public:
     LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress);
@@ -62,4 +61,6 @@ class LSM6DSOXClass {
     SPISettings _spiSettings;
 };
 
-extern LSM6DSOXClass IMU;
+extern LSM6DSOXClass IMU_LSM6DSOX;
+#undef IMU
+#define IMU IMU_LSM6DSOX
