@@ -29,6 +29,9 @@ class LSM6DSOXClass {
 
     int begin();
     void end();
+    int reset();
+
+    void beginFIFO();
 
     // Accelerometer
     int readAcceleration(float& x, float& y, float& z); // Results are in g (earth gravity).
@@ -45,6 +48,12 @@ class LSM6DSOXClass {
     int readTemperatureFloat(float& temperature_deg);
     int temperatureAvailable();
 
+    // Timestamp
+    int readTimestamp(uint32_t& timestamp);
+    int readInternalFrequency(int8_t& freq_fine);
+    int readTimestampDouble(double& timestamp);
+    int resetTimestamp();
+    
   private:
     int readRegister(uint8_t address);
     int readRegisters(uint8_t address, uint8_t* data, size_t length);

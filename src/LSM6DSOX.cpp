@@ -21,15 +21,24 @@
 
 #define LSM6DSOX_ADDRESS            0x6A
 
+#define LSM6DSOX_FIFO_CTRL1         0x07
+#define LSM6DSOX_FIFO_CTRL2         0x08
+#define LSM6DSOX_FIFO_CTRL3         0x09
+#define LSM6DSOX_FIFO_CTRL4         0x0A
+
 #define LSM6DSOX_WHO_AM_I_REG       0X0F
 #define LSM6DSOX_CTRL1_XL           0X10
 #define LSM6DSOX_CTRL2_G            0X11
+#define LSM6DSOX_CTRL3_C            0X12
 
 #define LSM6DSOX_STATUS_REG         0X1E
+
+#define LSM6DSOX_CTRL2_G            0X11
 
 #define LSM6DSOX_CTRL6_C            0X15
 #define LSM6DSOX_CTRL7_G            0X16
 #define LSM6DSOX_CTRL8_XL           0X17
+#define LSM6DSOX_CTRL10_C           0X19
 
 #define LSM6DSOX_OUT_TEMP_L         0X20
 #define LSM6DSOX_OUT_TEMP_H         0X21
@@ -47,6 +56,13 @@
 #define LSM6DSOX_OUTY_H_XL          0X2B
 #define LSM6DSOX_OUTZ_L_XL          0X2C
 #define LSM6DSOX_OUTZ_H_XL          0X2D
+
+#define LSM6DSOX_TIMESTAMP0         0x40
+#define LSM6DSOX_TIMESTAMP1         0x41
+#define LSM6DSOX_TIMESTAMP2         0x42
+#define LSM6DSOX_TIMESTAMP3         0x43
+
+#define LSM6DSOX_INTERNAL_FREQ_FINE 0x63
 
 
 LSM6DSOXClass::LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress) :
@@ -84,6 +100,8 @@ int LSM6DSOXClass::begin()
     return 0;
   }
 
+  reset();
+
   //set the gyroscope control register to work at 104 Hz, 2000 dps and in bypass mode
   writeRegister(LSM6DSOX_CTRL2_G, 0x4C);
 
@@ -96,6 +114,9 @@ int LSM6DSOXClass::begin()
 
   // Set the ODR config register to ODR/4
   writeRegister(LSM6DSOX_CTRL8_XL, 0x09);
+
+  // Enable timestamp counter
+  writeRegister(LSM6DSOX_CTRL10_C, 0x20);
 
   return 1;
 }
@@ -111,6 +132,45 @@ void LSM6DSOXClass::end()
     writeRegister(LSM6DSOX_CTRL1_XL, 0x00);
     _wire->end();
   }
+}
+
+int LSM6DSOXClass::reset() {
+  writeRegister(LSM6DSOX_CTRL1_XL, 0x00); // Power-down XL
+  writeRegister(LSM6DSOX_CTRL2_G, 0x00); // Power-down G
+  int ctrl3_c_value = readRegister(LSM6DSOX_CTRL3_C);
+  if( ctrl3_c_value < 0 ) {
+    return -1;
+  }
+  ctrl3_c_value |= 0x01; // Set SW_RESET to 1
+  writeRegister(LSM6DSOX_CTRL3_C, ctrl3_c_value ); // Initiate the reset
+  // Wait for SW_RESET to be reset to 0. This takes ~50us
+  while( ctrl3_c_value & 0x01 ) {
+    if((ctrl3_c_value = readRegister(LSM6DSOX_CTRL3_C)) < 0) return -1;
+  }
+  return 0;
+}
+
+void LSM6DSOXClass::beginFIFO()
+{
+  // Set default values
+  uint16_t watermark_level = 0; //Set watermark level (default 0)
+  uint8_t datarate = 0b0100; //Assume G/XL/FIFO data rate the same (=104Hz)
+  uint8_t timestamp_decimation = 0b01; //Decimation 1
+  uint8_t temperature_frequency = 0b01; //1.6Hz
+  uint8_t fifo_mode = 0b110; //Continuous mode
+
+  uint8_t fifo_ctrl2 = 0b00000000; // Default STOP_ON_WTM=0 and no compression
+  fifo_ctrl2 |= (watermark_level >> 8) & 0x01; // Put WTM9 into CTRL2 bit 0
+  if(watermark_level > 0) {
+    fifo_ctrl2 |= 0b10000000; // Set STOP_ON_WTM=1
+  }
+
+  uint8_t fifo_ctrl4 = (timestamp_decimation << 6) | (temperature_frequency << 4) | fifo_mode;
+
+  writeRegister(LSM6DSOX_FIFO_CTRL1, watermark_level & 0xFF); // Lower 8 bits
+  writeRegister(LSM6DSOX_FIFO_CTRL2, fifo_ctrl2);
+  writeRegister(LSM6DSOX_FIFO_CTRL3, datarate | (datarate << 4));
+  writeRegister(LSM6DSOX_FIFO_CTRL4, fifo_ctrl4);
 }
 
 int LSM6DSOXClass::readAcceleration(float& x, float& y, float& z)
@@ -214,6 +274,48 @@ int LSM6DSOXClass::temperatureAvailable()
 float LSM6DSOXClass::gyroscopeSampleRate()
 {
   return 104.0F;
+}
+
+int LSM6DSOXClass::readTimestamp(uint32_t& timestamp) {
+  uint8_t buffer[4];
+  int result = readRegisters(LSM6DSOX_TIMESTAMP0, buffer, 4);
+  if( result == 1 ) {
+    timestamp = (uint32_t)(buffer[3] << 24) | 
+                (uint32_t)(buffer[2] << 16) |
+                (uint32_t)(buffer[1] <<  8) |
+                (uint32_t)(buffer[0]);
+  }
+  return result;
+}
+    
+int LSM6DSOXClass::readInternalFrequency(int8_t& freq_fine) {
+  int result = readRegister(LSM6DSOX_INTERNAL_FREQ_FINE);
+  if( result >= 0 ) {
+    freq_fine = (int8_t)result;
+    return 0;
+  }
+  return result;
+}
+
+int LSM6DSOXClass::readTimestampDouble(double& timestamp) {
+  uint32_t t;
+  int result = readTimestamp(t);
+  if( result == 1 ) {
+    int8_t freq_fine;
+    result = readInternalFrequency(freq_fine);
+    if( result >= 0 ) {
+      // See AN5272, par 6.4
+      timestamp = t / (40000 * (1 + 0.0015 * freq_fine));
+    } else {
+      return -1;
+    }
+  }
+  return result;
+}
+
+int LSM6DSOXClass::resetTimestamp() {
+  // See AN5272, par. 6.4
+  return writeRegister(LSM6DSOX_TIMESTAMP2, 0xAA);
 }
 
 int LSM6DSOXClass::readRegister(uint8_t address)
