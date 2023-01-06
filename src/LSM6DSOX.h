@@ -21,17 +21,29 @@
 #include <Wire.h>
 #include <SPI.h>
 
+struct SensorSettings {
+public:
+  uint16_t sampleRate;
+	uint8_t gyroRange;
+	uint16_t accelRange;
+};
+
 class LSM6DSOXClass {
+  friend class LSM6DSOXFIFOClass;
   public:
+    //IMU settings
+    SensorSettings settings;
+
     LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress);
     LSM6DSOXClass(SPIClass& spi, int csPin, int irqPin);
     ~LSM6DSOXClass();
 
+    void initializeSettings(uint16_t sampleRate = 416, uint16_t gyroRange = 1000, uint8_t accelRange = 8);
+    uint8_t getODRbits();
+
     int begin();
     void end();
     int reset();
-
-    void beginFIFO();
 
     // Accelerometer
     int readAcceleration(float& x, float& y, float& z); // Results are in g (earth gravity).
@@ -53,12 +65,20 @@ class LSM6DSOXClass {
     int readInternalFrequency(int8_t& freq_fine);
     int readTimestampDouble(double& timestamp);
     int resetTimestamp();
+
+    // Self-test
+    int setPosSelfTestXL();
+    int setNegSelfTestXL();
+    int resetSelfTestXL();
+    int setPosSelfTestG();
+    int setNegSelfTestG();
+    int resetSelfTestG();
     
   private:
+    int setSelfTestReg(uint8_t mask, uint8_t config);
     int readRegister(uint8_t address);
     int readRegisters(uint8_t address, uint8_t* data, size_t length);
     int writeRegister(uint8_t address, uint8_t value);
-
 
   private:
     TwoWire* _wire;

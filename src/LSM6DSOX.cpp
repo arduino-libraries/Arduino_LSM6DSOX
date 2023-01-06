@@ -19,6 +19,8 @@
 
 #include "LSM6DSOX.h"
 
+#include <map>
+
 #define LSM6DSOX_ADDRESS            0x6A
 
 #define LSM6DSOX_FIFO_CTRL1         0x07
@@ -31,14 +33,15 @@
 #define LSM6DSOX_CTRL2_G            0X11
 #define LSM6DSOX_CTRL3_C            0X12
 
-#define LSM6DSOX_STATUS_REG         0X1E
-
 #define LSM6DSOX_CTRL2_G            0X11
 
+#define LSM6DSOX_CTRL5_C            0X14
 #define LSM6DSOX_CTRL6_C            0X15
 #define LSM6DSOX_CTRL7_G            0X16
 #define LSM6DSOX_CTRL8_XL           0X17
 #define LSM6DSOX_CTRL10_C           0X19
+
+#define LSM6DSOX_STATUS_REG         0X1E
 
 #define LSM6DSOX_OUT_TEMP_L         0X20
 #define LSM6DSOX_OUT_TEMP_H         0X21
@@ -64,12 +67,39 @@
 
 #define LSM6DSOX_INTERNAL_FREQ_FINE 0x63
 
+// Map from sample rate to ODR configuration bits
+std::map< uint16_t, uint8_t > mapSampleRateToODR = { 
+  {   13, 0b0001 }, 
+  {   26, 0b0010 }, 
+  {   52, 0b0011 }, 
+  {  104, 0b0100 }, 
+  {  208, 0b0101 }, 
+  {  417, 0b0110 }, 
+  {  833, 0b0111 }, 
+  { 1667, 0b1000 }, 
+  { 3333, 0b1001 }, 
+  { 6667, 0b1010 } 
+};
+std::map< uint8_t, uint8_t > mapAccelRangeToFSXL = { // FS1_XL FS0_XL (CTRL1_XL)
+  {  2, 0b00 }, 
+  {  4, 0b10 }, 
+  {  8, 0b11 }, 
+  { 16, 0b01 }
+};
+std::map< uint16_t, uint8_t > mapGyroRangeToFSG = { // FS1_G FS0_G FS_125 (CTRL2_G)
+  {  125, 0b001 }, 
+  {  250, 0b000 }, 
+  {  500, 0b010 }, 
+  { 1000, 0b100 }, 
+  { 2000, 0b110 }
+};
 
 LSM6DSOXClass::LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress) :
   _wire(&wire),
   _spi(NULL),
   _slaveAddress(slaveAddress)
 {
+  initializeSettings();
 }
 
 LSM6DSOXClass::LSM6DSOXClass(SPIClass& spi, int csPin, int irqPin) :
@@ -79,10 +109,26 @@ LSM6DSOXClass::LSM6DSOXClass(SPIClass& spi, int csPin, int irqPin) :
   _irqPin(irqPin),
   _spiSettings(10E6, MSBFIRST, SPI_MODE0)
 {
+  initializeSettings();
 }
 
 LSM6DSOXClass::~LSM6DSOXClass()
 {
+}
+
+void LSM6DSOXClass::initializeSettings(uint16_t sampleRate, uint16_t gyroRange, uint8_t accelRange)
+{
+  settings.sampleRate = sampleRate;
+	settings.gyroRange = gyroRange;
+	settings.accelRange = accelRange;
+}
+
+uint8_t LSM6DSOXClass::getODRbits() {
+  uint8_t odr = 0b0100; // Default 104Hz
+  if(mapSampleRateToODR.count(settings.sampleRate) > 0) {
+    odr = mapSampleRateToODR[settings.sampleRate];
+  }
+  return odr;
 }
 
 int LSM6DSOXClass::begin()
@@ -102,18 +148,48 @@ int LSM6DSOXClass::begin()
 
   reset();
 
-  //set the gyroscope control register to work at 104 Hz, 2000 dps and in bypass mode
-  writeRegister(LSM6DSOX_CTRL2_G, 0x4C);
+  // ODR
+  uint8_t odr = getODRbits();
 
-  // Set the Accelerometer control register to work at 104 Hz, 4 g,and in bypass mode and enable ODR/4
-  // low pass filter (check figure9 of LSM6DSOX's datasheet)
-  writeRegister(LSM6DSOX_CTRL1_XL, 0x4A);
+  // FS XL
+  uint8_t fs_xl = 0b11; // Default 8g
+  if(mapAccelRangeToFSXL.count(settings.accelRange) > 0) {
+    fs_xl = mapAccelRangeToFSXL[settings.accelRange];
+  }
 
-  // set gyroscope power mode to high performance and bandwidth to 16 MHz
+  // FS G
+  uint8_t fs_g = 0b100; // Default 1000 deg/s
+  if(mapGyroRangeToFSG.count(settings.gyroRange) > 0) {
+    fs_g = mapGyroRangeToFSG[settings.gyroRange];
+  }
+
+  // set the Accelerometer control register:
+  // - odr from settings
+  // - range from settings
+  // - LPF2 disabled
+  uint8_t ctrl1_xl = (odr << 4) | (fs_xl << 2) | 0x00;
+  writeRegister(LSM6DSOX_CTRL1_XL, ctrl1_xl);
+
+  // set the Gyroscope control register:
+  // - odr from settings
+  // - range from settings
+  uint8_t ctrl2_xl = (odr << 4) | (fs_g << 1);
+  writeRegister(LSM6DSOX_CTRL2_G, ctrl2_xl);
+
+  // leave CTRL3_C as it is
+  // leave CTRL4_C as it is
+  // leave CTRL5_C as it is
+
+  // set accelerometer power mode to high performance and LPF1 cutoff as high as possible
+  writeRegister(LSM6DSOX_CTRL6_C, 0x03);
+
+  // set gyroscope power mode to high performance and HPF cutoff to 16 mMHz
   writeRegister(LSM6DSOX_CTRL7_G, 0x00);
 
   // Set the ODR config register to ODR/4
-  writeRegister(LSM6DSOX_CTRL8_XL, 0x09);
+  writeRegister(LSM6DSOX_CTRL8_XL, 0x00);
+
+  // leave CTRL9_X as it is
 
   // Enable timestamp counter
   writeRegister(LSM6DSOX_CTRL10_C, 0x20);
@@ -148,29 +224,6 @@ int LSM6DSOXClass::reset() {
     if((ctrl3_c_value = readRegister(LSM6DSOX_CTRL3_C)) < 0) return -1;
   }
   return 0;
-}
-
-void LSM6DSOXClass::beginFIFO()
-{
-  // Set default values
-  uint16_t watermark_level = 0; //Set watermark level (default 0)
-  uint8_t datarate = 0b0100; //Assume G/XL/FIFO data rate the same (=104Hz)
-  uint8_t timestamp_decimation = 0b01; //Decimation 1
-  uint8_t temperature_frequency = 0b01; //1.6Hz
-  uint8_t fifo_mode = 0b110; //Continuous mode
-
-  uint8_t fifo_ctrl2 = 0b00000000; // Default STOP_ON_WTM=0 and no compression
-  fifo_ctrl2 |= (watermark_level >> 8) & 0x01; // Put WTM9 into CTRL2 bit 0
-  if(watermark_level > 0) {
-    fifo_ctrl2 |= 0b10000000; // Set STOP_ON_WTM=1
-  }
-
-  uint8_t fifo_ctrl4 = (timestamp_decimation << 6) | (temperature_frequency << 4) | fifo_mode;
-
-  writeRegister(LSM6DSOX_FIFO_CTRL1, watermark_level & 0xFF); // Lower 8 bits
-  writeRegister(LSM6DSOX_FIFO_CTRL2, fifo_ctrl2);
-  writeRegister(LSM6DSOX_FIFO_CTRL3, datarate | (datarate << 4));
-  writeRegister(LSM6DSOX_FIFO_CTRL4, fifo_ctrl4);
 }
 
 int LSM6DSOXClass::readAcceleration(float& x, float& y, float& z)
@@ -327,6 +380,34 @@ int LSM6DSOXClass::readRegister(uint8_t address)
   }
   
   return value;
+}
+
+int LSM6DSOXClass::setPosSelfTestXL() {
+  return setSelfTestReg(0xFC, 0x01);
+}
+int LSM6DSOXClass::setNegSelfTestXL() {
+  return setSelfTestReg(0xFC, 0x10);
+}
+int LSM6DSOXClass::resetSelfTestXL() {
+  return setSelfTestReg(0xFC, 0x00);
+}
+int LSM6DSOXClass::setPosSelfTestG() {
+  return setSelfTestReg(0xF3, 0x01);
+}
+int LSM6DSOXClass::setNegSelfTestG() {
+  return setSelfTestReg(0xF3, 0x11);
+}
+int LSM6DSOXClass::resetSelfTestG() {
+  return setSelfTestReg(0xF3, 0x00);
+}
+int LSM6DSOXClass::setSelfTestReg(uint8_t mask, uint8_t config) {
+  int result = -1;
+  int ctrl5_c = readRegister(LSM6DSOX_CTRL5_C);
+  if(ctrl5_c >= 0) {
+    ctrl5_c = (ctrl5_c & mask) | config;
+    result = writeRegister(LSM6DSOX_CTRL5_C, (uint8_t)ctrl5_c);
+  }
+  return result;
 }
 
 int LSM6DSOXClass::readRegisters(uint8_t address, uint8_t* data, size_t length)
