@@ -152,7 +152,7 @@ int LSM6DSOXClass::begin()
   uint8_t odr = getODRbits();
 
   // FS XL
-  uint8_t fs_xl = 0b11; // Default 8g
+  uint8_t fs_xl = 0b00; // Default 2g
   if(mapAccelRangeToFSXL.count(settings.accelRange) > 0) {
     fs_xl = mapAccelRangeToFSXL[settings.accelRange];
   }
@@ -194,11 +194,18 @@ int LSM6DSOXClass::begin()
   // Enable timestamp counter
   writeRegister(LSM6DSOX_CTRL10_C, 0x20);
 
+  // Create new FIFO
+  fifo = new LSM6DSOXFIFOClass(this);
+
   return 1;
 }
 
 void LSM6DSOXClass::end()
 {
+  // Stop and delete FIFO
+  fifo->end();
+  delete fifo;
+
   if (_spi != NULL) {
     _spi->end();
     digitalWrite(_csPin, LOW);
@@ -238,9 +245,9 @@ int LSM6DSOXClass::readAcceleration(float& x, float& y, float& z)
     return 0;
   }
 
-  x = data[0] * 4.0 / 32768.0;
-  y = data[1] * 4.0 / 32768.0;
-  z = data[2] * 4.0 / 32768.0;
+  x = data[0] * (settings.accelRange / 32768.0);
+  y = data[1] * (settings.accelRange / 32768.0);
+  z = data[2] * (settings.accelRange / 32768.0);
 
   return 1;
 }
@@ -271,9 +278,9 @@ int LSM6DSOXClass::readGyroscope(float& x, float& y, float& z)
     return 0;
   }
 
-  x = data[0] * 2000.0 / 32768.0;
-  y = data[1] * 2000.0 / 32768.0;
-  z = data[2] * 2000.0 / 32768.0;
+  x = data[0] * (settings.gyroRange / 32768.0);
+  y = data[1] * (settings.gyroRange / 32768.0);
+  z = data[2] * (settings.gyroRange / 32768.0);
 
   return 1;
 }

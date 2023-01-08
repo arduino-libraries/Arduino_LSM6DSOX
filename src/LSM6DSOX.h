@@ -20,6 +20,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <SPI.h>
+#include "LSM6DSOXFIFO.h"
 
 struct SensorSettings {
 public:
@@ -33,6 +34,9 @@ class LSM6DSOXClass {
   public:
     //IMU settings
     SensorSettings settings;
+
+    //FIFO
+    LSM6DSOXFIFOClass* fifo;
 
     LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress);
     LSM6DSOXClass(SPIClass& spi, int csPin, int irqPin);
