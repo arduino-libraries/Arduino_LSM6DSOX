@@ -95,6 +95,7 @@ std::map< uint16_t, uint8_t > mapGyroRangeToFSG = { // FS1_G FS0_G FS_125 (CTRL2
 };
 
 LSM6DSOXClass::LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress) :
+  fifo(this),
   _wire(&wire),
   _spi(NULL),
   _slaveAddress(slaveAddress)
@@ -103,6 +104,7 @@ LSM6DSOXClass::LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress) :
 }
 
 LSM6DSOXClass::LSM6DSOXClass(SPIClass& spi, int csPin, int irqPin) :
+  fifo(this),
   _wire(NULL),
   _spi(&spi),
   _csPin(csPin),
@@ -194,17 +196,17 @@ int LSM6DSOXClass::begin()
   // Enable timestamp counter
   writeRegister(LSM6DSOX_CTRL10_C, 0x20);
 
-  // Create new FIFO
-  fifo = new LSM6DSOXFIFOClass(this);
+  // Start FIFO. Note that its settings should be set as necessary before this
+  // happens!
+  //fifo.begin();
 
   return 1;
 }
 
 void LSM6DSOXClass::end()
 {
-  // Stop and delete FIFO
-  fifo->end();
-  delete fifo;
+  // Stop FIFO
+  fifo.end();
 
   if (_spi != NULL) {
     _spi->end();
@@ -218,6 +220,10 @@ void LSM6DSOXClass::end()
 }
 
 int LSM6DSOXClass::reset() {
+  // Stop FIFO
+  fifo.end();
+
+  // Start reset sequence
   writeRegister(LSM6DSOX_CTRL1_XL, 0x00); // Power-down XL
   writeRegister(LSM6DSOX_CTRL2_G, 0x00); // Power-down G
   int ctrl3_c_value = readRegister(LSM6DSOX_CTRL3_C);

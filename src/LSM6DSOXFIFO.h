@@ -22,6 +22,10 @@
 
 #include <Arduino.h>
 
+// Buffer size
+#define BUFFER_WORDS          512 // Number of 'words'
+#define BUFFER_BYTES_PER_WORD 7   // Tag + 3 * (2 byte word)
+
 struct FIFOSettings {
 public:
   uint16_t watermark_level;       //9 bits (0-511)
@@ -32,10 +36,22 @@ public:
   uint8_t fifo_mode;              //3-bit pattern, see datasheet
 };
 
+struct FIFOStatus {
+public:
+  bool FIFO_WTM_IA;     // FIFO watermark status: 1: FIFO filling >= WTM
+  bool FIFO_OVR_IA;     // FIFO overrun status. 1: FIFO is completely filled
+  bool FIFO_FULL_IA;    // Smart FIFO full status. 1: FIFO will be full at the next ODR
+  bool COUNTER_BDR_IA;  // Counter BDR reaches CNT_BDR_TH_[10:0] threshold
+  bool FIFO_OVR_LATCHED;// Latched FIFO overrun status
+  uint16_t DIFF_FIFO;   // Number of unread sensor data (TAG + 6 bytes) stored in FIFO
+};
+
 class LSM6DSOXClass;
 
 class LSM6DSOXFIFOClass {
   public:
+    FIFOSettings  settings;
+
     LSM6DSOXFIFOClass(LSM6DSOXClass* imu);
     ~LSM6DSOXFIFOClass();
 
@@ -50,9 +66,13 @@ class LSM6DSOXFIFOClass {
     void begin();
     void end();
 
+    int readStatus(FIFOStatus& status);
+    //int readNewValues();
+
   private:
-    FIFOSettings    settings;
     LSM6DSOXClass*  imu;
+
+    uint8_t         buffer[BUFFER_WORDS * BUFFER_BYTES_PER_WORD];
 };
 
 #endif

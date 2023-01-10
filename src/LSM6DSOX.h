@@ -36,7 +36,7 @@ class LSM6DSOXClass {
     SensorSettings settings;
 
     //FIFO
-    LSM6DSOXFIFOClass* fifo;
+    LSM6DSOXFIFOClass fifo;
 
     LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress);
     LSM6DSOXClass(SPIClass& spi, int csPin, int irqPin);

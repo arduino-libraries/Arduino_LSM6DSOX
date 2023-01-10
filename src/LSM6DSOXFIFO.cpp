@@ -31,6 +31,9 @@
 #define LSM6DSOX_COUNTER_BDR_REG1   0x0B
 #define LSM6DSOX_COUNTER_BDR_REG2   0x0C
 
+#define LSM6DSOX_STATUS1            0x3A
+#define LSM6DSOX_STATUS2            0x3B
+
 std::map< uint8_t, uint8_t > mapTimestampDecimation = { // DEC_TS_BATCH_[1:0]
   {  0, 0b00 }, 
   {  1, 0b01 }, 
@@ -46,6 +49,8 @@ std::map< uint8_t, uint8_t > mapTemperatureODR = { // ODR_T_BATCH_[1:0]
 
 LSM6DSOXFIFOClass::LSM6DSOXFIFOClass(LSM6DSOXClass* imu) {
   this->imu = imu;
+
+  initializeSettings();
 }
 
 LSM6DSOXFIFOClass::~LSM6DSOXFIFOClass() {
@@ -96,14 +101,42 @@ void LSM6DSOXFIFOClass::begin()
   }
   uint8_t counter_bdr_reg2 = settings.counter_threshold  & 0xFF; // CNT_BDR_TH_0..7
 
-  this->imu->writeRegister(LSM6DSOX_FIFO_CTRL1, fifo_ctrl1);
-  this->imu->writeRegister(LSM6DSOX_FIFO_CTRL2, fifo_ctrl2);
-  this->imu->writeRegister(LSM6DSOX_FIFO_CTRL3, fifo_ctrl3);
-  this->imu->writeRegister(LSM6DSOX_FIFO_CTRL4, fifo_ctrl4);
-  this->imu->writeRegister(LSM6DSOX_COUNTER_BDR_REG1, counter_bdr_reg1);
-  this->imu->writeRegister(LSM6DSOX_COUNTER_BDR_REG2, counter_bdr_reg2);
+  imu->writeRegister(LSM6DSOX_FIFO_CTRL1, fifo_ctrl1);
+  imu->writeRegister(LSM6DSOX_FIFO_CTRL2, fifo_ctrl2);
+  imu->writeRegister(LSM6DSOX_FIFO_CTRL3, fifo_ctrl3);
+  imu->writeRegister(LSM6DSOX_FIFO_CTRL4, fifo_ctrl4);
+  imu->writeRegister(LSM6DSOX_COUNTER_BDR_REG1, counter_bdr_reg1);
+  imu->writeRegister(LSM6DSOX_COUNTER_BDR_REG2, counter_bdr_reg2);
 }
 
 void LSM6DSOXFIFOClass::end()
 {
+  // Disable XL and G batching
+  imu->writeRegister(LSM6DSOX_FIFO_CTRL3, 0x00);
+
+  // Disable timestamp and temperature batching, and set FIFO mode=0 (FIFO disabled)
+  imu->writeRegister(LSM6DSOX_FIFO_CTRL4, 0x00);
+
 }
+
+int LSM6DSOXFIFOClass::readStatus(FIFOStatus& status)
+{
+  uint8_t status_registers[2];
+  int result = this->imu->readRegisters(LSM6DSOX_STATUS1, &status_registers[0], 2);
+  if(result == 1) {
+    status.DIFF_FIFO = status_registers[0] | ((status_registers[1] & 0x03) << 8);
+    status.FIFO_OVR_LATCHED = (status_registers[1] & 0x08) == 0x08;
+    status.COUNTER_BDR_IA = (status_registers[1] & 0x10) == 0x10;
+    status.FIFO_FULL_IA = (status_registers[1] & 0x20) == 0x20;
+    status.FIFO_OVR_IA = (status_registers[1] & 0x40) == 0x40;
+    status.FIFO_WTM_IA = (status_registers[1] & 0x80) == 0x80;
+  }
+  return result;
+}
+
+/*
+int LSM6DSOXFIFOClass::readNewValues()
+{
+
+}
+*/
