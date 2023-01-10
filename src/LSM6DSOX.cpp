@@ -269,7 +269,7 @@ int LSM6DSOXClass::accelerationAvailable()
 
 float LSM6DSOXClass::accelerationSampleRate()
 {
-  return 104.0F;
+  return (float)settings.sampleRate;
 }
 
 int LSM6DSOXClass::readGyroscope(float& x, float& y, float& z)
@@ -339,7 +339,7 @@ int LSM6DSOXClass::temperatureAvailable()
 
 float LSM6DSOXClass::gyroscopeSampleRate()
 {
-  return 104.0F;
+  return (float)settings.sampleRate;
 }
 
 int LSM6DSOXClass::readTimestamp(uint32_t& timestamp) {
