@@ -21,6 +21,7 @@
 #include "LSM6DSOX.h"
 
 #include <map>
+#include <algorithm>
 
 #define LSM6DSOX_ADDRESS            0x6A
 
@@ -33,6 +34,9 @@
 
 #define LSM6DSOX_STATUS1            0x3A
 #define LSM6DSOX_STATUS2            0x3B
+
+#define LSM6DSOX_FIFO_DATA_OUT_TAG  0x78
+
 
 std::map< uint8_t, uint8_t > mapTimestampDecimation = { // DEC_TS_BATCH_[1:0]
   {  0, 0b00 }, 
@@ -73,12 +77,22 @@ void LSM6DSOXFIFOClass::initializeSettings(
 
 void LSM6DSOXFIFOClass::begin()
 {
-  uint8_t fifo_ctrl1 = this->settings.watermark_level & 0xFF; // WTM0..8
+  // Find timestamp correction factor. See AN5272, par 6.4
+  int8_t freq_fine;
+  imu->readInternalFrequency(freq_fine);
+  timestampCorrection = 1.0 / (40000 * (1 + 0.0015 * freq_fine));
+
+  // Find actual XL and G full scale values
+  fullScaleXL = imu->accelerationFullScale();
+  fullScaleG = imu->gyroscopeFullScale();
+
+  // Now find all configuration values
+  uint8_t fifo_ctrl1 = settings.watermark_level & 0xFF; // WTM0..8
   uint8_t fifo_ctrl2 = 0b00000000; // Default STOP_ON_WTM=0 and no compression
   fifo_ctrl2 |= (this->settings.watermark_level >> 8) & 0x01; // Put WTM8 into CTRL2 bit 0
 
   // Set Batching Data Rate for XL and G equal to their ODR
-  uint8_t odr = this->imu->getODRbits();
+  uint8_t odr = imu->getODRbits();
   uint8_t fifo_ctrl3 = (odr << 4) | odr;
 
   // Retrieve timestamp decimation
@@ -93,7 +107,7 @@ void LSM6DSOXFIFOClass::begin()
   if(mapTemperatureODR.count(settings.temperature_frequency) > 0) {
     odr_t = mapTemperatureODR[settings.temperature_frequency];
   }
-  uint8_t fifo_ctrl4 = (dec_ts << 6) | (odr_t << 4) | this->settings.fifo_mode;
+  uint8_t fifo_ctrl4 = (dec_ts << 6) | (odr_t << 4) | settings.fifo_mode;
 
   uint8_t counter_bdr_reg1 = (settings.counter_threshold >> 8) & 0x07; // CNT_BDR_TH_8..10
   if(settings.counter_gyro) {
@@ -107,6 +121,11 @@ void LSM6DSOXFIFOClass::begin()
   imu->writeRegister(LSM6DSOX_FIFO_CTRL4, fifo_ctrl4);
   imu->writeRegister(LSM6DSOX_COUNTER_BDR_REG1, counter_bdr_reg1);
   imu->writeRegister(LSM6DSOX_COUNTER_BDR_REG2, counter_bdr_reg2);
+
+  // Buffer management
+  read_idx = 0;
+  write_idx = 0;
+  buffer_empty = true;
 }
 
 void LSM6DSOXFIFOClass::end()
@@ -116,13 +135,21 @@ void LSM6DSOXFIFOClass::end()
 
   // Disable timestamp and temperature batching, and set FIFO mode=0 (FIFO disabled)
   imu->writeRegister(LSM6DSOX_FIFO_CTRL4, 0x00);
+}
 
+uint16_t LSM6DSOXFIFOClass::unread_words()
+{
+  int16_t diff = (int16_t)write_idx - (int16_t)read_idx;
+  if(diff < 0) {
+    diff += BUFFER_WORDS;
+  }
+  return (uint16_t)diff;
 }
 
 int LSM6DSOXFIFOClass::readStatus(FIFOStatus& status)
 {
   uint8_t status_registers[2];
-  int result = this->imu->readRegisters(LSM6DSOX_STATUS1, &status_registers[0], 2);
+  int result = imu->readRegisters(LSM6DSOX_STATUS1, &status_registers[0], 2);
   if(result == 1) {
     status.DIFF_FIFO = status_registers[0] | ((status_registers[1] & 0x03) << 8);
     status.FIFO_OVR_LATCHED = (status_registers[1] & 0x08) == 0x08;
@@ -134,9 +161,63 @@ int LSM6DSOXFIFOClass::readStatus(FIFOStatus& status)
   return result;
 }
 
-/*
-int LSM6DSOXFIFOClass::readNewValues()
+// Read as much data as possible in one multiple byte/word read from sensor fifo
+// to our own buffer
+int LSM6DSOXFIFOClass::readData(uint16_t& words_read, bool& too_full)
 {
+  words_read = 0;
+  too_full = false;
 
+  FIFOStatus status;
+  int result = readStatus(status);
+  if(result == 1) {
+    // The I2C/SPI multibyte read requires contiguous memory. Therefore fifo reading 
+    // operations can not run past the end of the buffer. They can also not run
+    // up to the current read pointer, in order to prevent data overrun.
+    uint16_t to_read = status.DIFF_FIFO;
+    if(read_idx > write_idx) {
+      uint16_t readable = read_idx - write_idx;
+      if(to_read > readable) {
+        to_read = readable;
+        too_full = true;
+      }
+    // Check special case where read and write pointer coincide: the buffer
+    // is either empty or completely full
+    } else if((read_idx == write_idx) && !buffer_empty) {
+        to_read = 0;
+        too_full = true;
+    } else { // Now read_idx < write_idx, so we can write up all the way to buffer end
+      uint16_t to_end = BUFFER_WORDS - write_idx;
+      if(to_read > to_end) to_read = to_end;
+    }
+    if(to_read == 0) return 2; // No data read, but other reason than communication problem (<= 0)
+
+    // This read operation uses fifo register rounding, see AN5272 par. 9.8
+    result = imu->readRegisters(LSM6DSOX_FIFO_DATA_OUT_TAG, buffer_pointer(write_idx), to_read*BUFFER_BYTES_PER_WORD);
+    if(result != 1) return result;
+
+    words_read = to_read;
+    buffer_empty = false;
+    if((write_idx += words_read) >= BUFFER_WORDS) write_idx -= BUFFER_WORDS; // Wrap around to buffer start
+  }
+  return result;
 }
-*/
+
+int LSM6DSOXFIFOClass::getSample(Sample& sample)
+{
+  int result = -1;
+
+  //bool Gfound = false;
+  //bool XLfound = false;
+
+  uint16_t unread = unread_words();
+  if(unread > 0) {
+    memcpy((void*)&sample, (const void*)buffer_pointer(read_idx++), (size_t)BUFFER_BYTES_PER_WORD);
+    if(read_idx >= BUFFER_WORDS) read_idx -= BUFFER_WORDS;
+    buffer_empty = (read_idx == write_idx);
+    result = 1;
+  }
+
+  return result;
+}
+

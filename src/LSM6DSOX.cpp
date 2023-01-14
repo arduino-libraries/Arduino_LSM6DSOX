@@ -269,7 +269,26 @@ int LSM6DSOXClass::accelerationAvailable()
 
 float LSM6DSOXClass::accelerationSampleRate()
 {
-  return (float)settings.sampleRate;
+  int ctrl1_xl = readRegister(LSM6DSOX_CTRL1_XL);
+  uint8_t odr_xl = (ctrl1_xl & 0xF0) >> 4;
+  for(auto &it : mapSampleRateToODR) { 
+    if(it.second == odr_xl) { 
+      return (float)it.first;
+    }
+  }
+  return NAN;
+}
+
+uint8_t LSM6DSOXClass::accelerationFullScale()
+{
+  int ctrl1_xl = readRegister(LSM6DSOX_CTRL1_XL);
+  uint8_t fs_xl = (ctrl1_xl & 0x0C) >> 2;
+  for(auto &it : mapAccelRangeToFSXL) { 
+    if(it.second == fs_xl) { 
+      return it.first;
+    }
+  }
+  return 0;
 }
 
 int LSM6DSOXClass::readGyroscope(float& x, float& y, float& z)
@@ -298,6 +317,29 @@ int LSM6DSOXClass::gyroscopeAvailable()
   }
 
   return 0;
+}
+
+float LSM6DSOXClass::gyroscopeSampleRate()
+{
+  int ctrl2_g = readRegister(LSM6DSOX_CTRL2_G);
+  uint8_t odr_g = (ctrl2_g & 0xF0) >> 4;
+  for(auto &it : mapSampleRateToODR) { 
+    if(it.second == odr_g) { 
+      return (float)it.first;
+    }
+  }
+  return NAN;
+}
+
+uint16_t LSM6DSOXClass::gyroscopeFullScale()
+{
+  int ctrl2_g = readRegister(LSM6DSOX_CTRL2_G);
+  uint8_t fs_g = (ctrl2_g & 0x0E) >> 1;
+  for(auto &it : mapGyroRangeToFSG) { 
+    if(it.second == fs_g) { 
+      return it.first;
+    }
+  }
 }
 
 int LSM6DSOXClass::readTemperature(int& temperature_deg)
@@ -335,11 +377,6 @@ int LSM6DSOXClass::temperatureAvailable()
   }
 
   return 0;
-}
-
-float LSM6DSOXClass::gyroscopeSampleRate()
-{
-  return (float)settings.sampleRate;
 }
 
 int LSM6DSOXClass::readTimestamp(uint32_t& timestamp) {

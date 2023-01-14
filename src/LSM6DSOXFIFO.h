@@ -22,9 +22,9 @@
 
 #include <Arduino.h>
 
-// Buffer size
-#define BUFFER_WORDS          512 // Number of 'words'
-#define BUFFER_BYTES_PER_WORD 7   // Tag + 3 * (2 byte word)
+// Buffer size. Define extra slots for compression, timestamp and config change
+#define BUFFER_WORDS          (512 + 5) // Number of 'words'
+#define BUFFER_BYTES_PER_WORD 7         // Tag + 3 * (2 byte word)
 
 struct FIFOSettings {
 public:
@@ -44,6 +44,22 @@ public:
   bool COUNTER_BDR_IA;  // Counter BDR reaches CNT_BDR_TH_[10:0] threshold
   bool FIFO_OVR_LATCHED;// Latched FIFO overrun status
   uint16_t DIFF_FIFO;   // Number of unread sensor data (TAG + 6 bytes) stored in FIFO
+};
+
+/*
+struct Sample {
+  int16_t G_X;
+  int16_t G_Y;
+  int16_t G_Z;
+  int16_t XL_X;
+  int16_t XL_Y;
+  int16_t XL_Z;
+  double timestamp;     // May be NaN
+  uint16_t XL_fullScale;
+  uint8_t G_fullScale;
+}; */
+struct Sample {
+  uint8_t data[7];
 };
 
 class LSM6DSOXClass;
@@ -67,12 +83,23 @@ class LSM6DSOXFIFOClass {
     void end();
 
     int readStatus(FIFOStatus& status);
-    //int readNewValues();
+    int readData(uint16_t& words_read, bool& too_full);
+    int getSample(Sample& sample);
+
+    uint8_t         buffer[BUFFER_WORDS * BUFFER_BYTES_PER_WORD];
+    uint16_t        read_idx;
+    uint16_t        write_idx;
+    bool            buffer_empty;
+
+    double          timestampCorrection;
+    uint8_t         fullScaleXL;
+    uint16_t        fullScaleG;
 
   private:
     LSM6DSOXClass*  imu;
 
-    uint8_t         buffer[BUFFER_WORDS * BUFFER_BYTES_PER_WORD];
+    uint8_t*        buffer_pointer(uint16_t idx) { return &buffer[idx * BUFFER_BYTES_PER_WORD]; }
+    uint16_t        unread_words();
 };
 
 #endif

@@ -53,11 +53,13 @@ class LSM6DSOXClass {
     int readAcceleration(float& x, float& y, float& z); // Results are in g (earth gravity).
     float accelerationSampleRate(); // Sampling rate of the sensor.
     int accelerationAvailable(); // Check for available data from accelerometer
+    uint8_t accelerationFullScale(); // Retrieve current accelerometer full scale setting
 
     // Gyroscope
     int readGyroscope(float& x, float& y, float& z); // Results are in degrees/second.
     float gyroscopeSampleRate(); // Sampling rate of the sensor.
     int gyroscopeAvailable(); // Check for available data from gyroscope
+    uint16_t gyroscopeFullScale(); // Retrieve current gyroscope full scale setting
 
     // Temperature
     int readTemperature(int& temperature_deg);
