@@ -38,7 +38,7 @@ class LSM6DSOXClass {
     //FIFO
     LSM6DSOXFIFOClass fifo;
 
-    LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress);
+    LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress, bool use400kHz = false);
     LSM6DSOXClass(SPIClass& spi, int csPin, int irqPin);
     ~LSM6DSOXClass();
 
@@ -92,6 +92,7 @@ class LSM6DSOXClass {
     uint8_t _slaveAddress;
     int _csPin;
     int _irqPin;
+    bool _use400kHz;
 
     SPISettings _spiSettings;
 };

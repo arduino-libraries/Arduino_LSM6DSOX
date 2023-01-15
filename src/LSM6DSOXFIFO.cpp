@@ -25,6 +25,7 @@
 
 #define LSM6DSOX_ADDRESS            0x6A
 
+#define LSM6DSOX_FUNC_CFG_ACCESS    0x01
 #define LSM6DSOX_FIFO_CTRL1         0x07
 #define LSM6DSOX_FIFO_CTRL2         0x08
 #define LSM6DSOX_FIFO_CTRL3         0x09
@@ -36,6 +37,10 @@
 #define LSM6DSOX_STATUS2            0x3B
 
 #define LSM6DSOX_FIFO_DATA_OUT_TAG  0x78
+
+//#define LSM6DSOX_EMB_FUNC_PAGE_SEL  0x02
+#define LSM6DSOX_EMB_FUNC_EN_B      0x05
+//#define LSM6DSOX_EMB_FUNC_PAGE_RW   0x17
 
 
 std::map< uint8_t, uint8_t > mapTimestampDecimation = { // DEC_TS_BATCH_[1:0]
@@ -66,13 +71,17 @@ void LSM6DSOXFIFOClass::initializeSettings(
   uint8_t temperature_frequency,
   uint16_t counter_threshold,
   bool counter_gyro,
+  bool compression,
+  uint8_t force_non_compressed_write,
   uint8_t fifo_mode) {
-    this->settings.watermark_level = watermark_level;
-    this->settings.timestamp_decimation = timestamp_decimation;
-    this->settings.temperature_frequency = temperature_frequency;
-    this->settings.counter_threshold = counter_threshold;    
-    this->settings.counter_gyro = counter_gyro;
-    this->settings.fifo_mode = fifo_mode;
+    settings.watermark_level = watermark_level;
+    settings.timestamp_decimation = timestamp_decimation;
+    settings.temperature_frequency = temperature_frequency;
+    settings.counter_threshold = counter_threshold;    
+    settings.counter_gyro = counter_gyro;
+    settings.compression = compression;
+    settings.force_non_compressed_write = force_non_compressed_write;
+    settings.fifo_mode = fifo_mode;
 }
 
 void LSM6DSOXFIFOClass::begin()
@@ -82,14 +91,24 @@ void LSM6DSOXFIFOClass::begin()
   imu->readInternalFrequency(freq_fine);
   timestampCorrection = 1.0 / (40000 * (1 + 0.0015 * freq_fine));
 
+  // Reset timestamp counter. Note that its lowest 2 bits will be filled by tag_cnt
+  timestamp_counter = 0;
+
   // Find actual XL and G full scale values
   fullScaleXL = imu->accelerationFullScale();
   fullScaleG = imu->gyroscopeFullScale();
 
+  // Enable or disable compression. See also below (FIFO_CTRL2)
+  uint8_t emb_func_en_b = settings.compression ? 0x08 : 0x00;
+  imu->writeRegister(LSM6DSOX_FUNC_CFG_ACCESS, 0x80); // Enable embedded function registers access
+  imu->writeRegister(LSM6DSOX_EMB_FUNC_EN_B, emb_func_en_b); // Enable or disable compression
+  imu->writeRegister(LSM6DSOX_FUNC_CFG_ACCESS, 0x00); // Disable embedded function registers access
+
   // Now find all configuration values
   uint8_t fifo_ctrl1 = settings.watermark_level & 0xFF; // WTM0..8
-  uint8_t fifo_ctrl2 = 0b00000000; // Default STOP_ON_WTM=0 and no compression
-  fifo_ctrl2 |= (this->settings.watermark_level >> 8) & 0x01; // Put WTM8 into CTRL2 bit 0
+  uint8_t fifo_ctrl2 = settings.compression ? 0x40 : 0x00; // Default STOP_ON_WTM=0
+  fifo_ctrl2 |= (settings.watermark_level >> 8) & 0x01; // Put WTM8 into CTRL2 bit 0
+  fifo_ctrl2 |= (settings.force_non_compressed_write & 0x03) << 1; // UNCOPTR_RATE[1:0]
 
   // Set Batching Data Rate for XL and G equal to their ODR
   uint8_t odr = imu->getODRbits();
@@ -217,6 +236,49 @@ int LSM6DSOXFIFOClass::getSample(Sample& sample)
     buffer_empty = (read_idx == write_idx);
     result = 1;
   }
+
+  /* uint8_t tagcnt = (sample.data[0] & 0x6) >> 1;
+  timestamp_counter &= ~0x03;
+  timestamp_counter |= (uint32_t)tagcnt;
+  uint8_t tag = sample.data[0] >> 3;
+
+  switch(tag) {
+    case 0x01: // Gyroscope NC Main Gyroscope uncompressed data
+      break;
+    case 0x02 Accelerometer NC Main Accelerometer uncompressed data
+      break;
+    case 0x03 Temperature Auxiliary Temperature data
+      break;
+    case 0x04 Timestamp Auxiliary Timestamp data
+      break;
+    case 0x05 CFG_Change Auxiliary Meta-information data
+      break;
+    case 0x06 Accelerometer NC_T_2 Main Accelerometer uncompressed batched at two times the previous time slot
+       break;
+   case 0x07 Accelerometer NC_T_1 Main Accelerometer uncompressed data batched at the previous time slot
+      break;
+    case 0x08 Accelerometer 2xC Main Accelerometer 2x compressed data
+      break;
+    case 0x09 Accelerometer 3xC Main Accelerometer 3x compressed data
+      break;
+    case 0x0A Gyroscope NC_T_2 Main Gyroscope uncompressed data batched at two times the previous time slot
+      break;
+    case 0x0B Gyroscope NC_T_1 Main Gyroscope uncompressed data batched at the previous time slot
+      break;
+    case 0x0C Gyroscope 2xC Main Gyroscope 2x compressed data
+      break;
+    case 0x0D Gyroscope 3xC Main Gyroscope 3x compressed data
+      break;
+    case 0x0E Sensor Hub Slave 0 Virtual Sensor hub data from slave 0
+    case 0x0F Sensor Hub Slave 1 Virtual Sensor hub data from slave 1
+    case 0x10 Sensor Hub Slave 2 Virtual Sensor hub data from slave 2
+    case 0x11 Sensor Hub Slave 3 Virtual Sensor hub data from slave 3
+    case 0x12 Step Counter Virtual Step counter data
+    case 0x19 Sensor Hub Nack Virtual Sensor hub nack from slave 0/1/2/
+    default:
+      break;
+  }
+  */
 
   return result;
 }

@@ -94,11 +94,12 @@ std::map< uint16_t, uint8_t > mapGyroRangeToFSG = { // FS1_G FS0_G FS_125 (CTRL2
   { 2000, 0b110 }
 };
 
-LSM6DSOXClass::LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress) :
+LSM6DSOXClass::LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress, bool use400kHz) :
   fifo(this),
   _wire(&wire),
   _spi(NULL),
-  _slaveAddress(slaveAddress)
+  _slaveAddress(slaveAddress),
+  _use400kHz(use400kHz)
 {
   initializeSettings();
 }
@@ -141,6 +142,9 @@ int LSM6DSOXClass::begin()
     _spi->begin();
   } else {
     _wire->begin();
+    if (_use400kHz) {
+      _wire->setClock( 400000UL);
+    }
   }
 
   if (!(readRegister(LSM6DSOX_WHO_AM_I_REG) == 0x6C || readRegister(LSM6DSOX_WHO_AM_I_REG) == 0x69)) {
@@ -340,6 +344,7 @@ uint16_t LSM6DSOXClass::gyroscopeFullScale()
       return it.first;
     }
   }
+  return 0;
 }
 
 int LSM6DSOXClass::readTemperature(int& temperature_deg)
@@ -511,5 +516,5 @@ int LSM6DSOXClass::writeRegister(uint8_t address, uint8_t value)
 #ifdef LSM6DS_DEFAULT_SPI
 LSM6DSOXClass IMU_LSM6DSOX(LSM6DS_DEFAULT_SPI, PIN_SPI_SS1, LSM6DS_INT);
 #else
-LSM6DSOXClass IMU_LSM6DSOX(Wire, LSM6DSOX_ADDRESS);
+LSM6DSOXClass IMU_LSM6DSOX(Wire, LSM6DSOX_ADDRESS, true);
 #endif

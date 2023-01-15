@@ -28,12 +28,14 @@
 
 struct FIFOSettings {
 public:
-  uint16_t watermark_level;       //9 bits (0-511)
-  uint8_t timestamp_decimation;   //0/1/8/32
-  uint8_t temperature_frequency;  //0/2/13/52
-  uint16_t counter_threshold;     //11 bits (0-2047)
-  bool counter_gyro;              //false = count XL, true = count G
-  uint8_t fifo_mode;              //3-bit pattern, see datasheet
+  uint16_t watermark_level;           //9 bits (0-511)
+  uint8_t timestamp_decimation;       //0/1/8/32
+  uint8_t temperature_frequency;      //0/2/13/52
+  uint16_t counter_threshold;         //11 bits (0-2047)
+  bool counter_gyro;                  //false = count XL, true = count G
+  bool compression;                   //true = enable compression
+  uint8_t force_non_compressed_write; //0=never, 1=every 8 BDR, 2=16 BDR, 3=32 BDR
+  uint8_t fifo_mode;                  //3-bit pattern, see datasheet
 };
 
 struct FIFOStatus {
@@ -77,6 +79,8 @@ class LSM6DSOXFIFOClass {
       uint8_t temperature_frequency = 2,  //1.6Hz
       uint16_t counter_threshold = 9,
       bool counter_gyro = true,           //Use G count (rather than XL)
+      bool compression = false,
+      uint8_t force_non_compressed_write = 2, // 0=never, 1=every 8 BDR, 2=16 BDR, 3=32 BDR
       uint8_t fifo_mode = 6);             //Continuous mode
 
     void begin();
@@ -100,6 +104,8 @@ class LSM6DSOXFIFOClass {
 
     uint8_t*        buffer_pointer(uint16_t idx) { return &buffer[idx * BUFFER_BYTES_PER_WORD]; }
     uint16_t        unread_words();
+
+    uint32_t        timestamp_counter;
 };
 
 #endif
