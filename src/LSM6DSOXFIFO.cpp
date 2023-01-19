@@ -73,6 +73,7 @@ void LSM6DSOXFIFOClass::initializeSettings(
   bool counter_gyro,
   bool compression,
   uint8_t force_non_compressed_write,
+  bool cfg_change,
   uint8_t fifo_mode) {
     settings.watermark_level = watermark_level;
     settings.timestamp_decimation = timestamp_decimation;
@@ -81,6 +82,7 @@ void LSM6DSOXFIFOClass::initializeSettings(
     settings.counter_gyro = counter_gyro;
     settings.compression = compression;
     settings.force_non_compressed_write = force_non_compressed_write;
+    settings.cfg_change = cfg_change;
     settings.fifo_mode = fifo_mode;
 }
 
@@ -89,7 +91,7 @@ void LSM6DSOXFIFOClass::begin()
   // Find timestamp correction factor. See AN5272, par 6.4
   int8_t freq_fine;
   imu->readInternalFrequency(freq_fine);
-  timestampCorrection = 1.0 / (40000 * (1 + 0.0015 * freq_fine));
+  timestampCorrection = imu->correctTimestamp(1, freq_fine);
 
   // Reset timestamp counter. Note that its lowest 2 bits will be filled by tag_cnt
   timestamp_counter = 0;
@@ -109,6 +111,7 @@ void LSM6DSOXFIFOClass::begin()
   uint8_t fifo_ctrl2 = settings.compression ? 0x40 : 0x00; // Default STOP_ON_WTM=0
   fifo_ctrl2 |= (settings.watermark_level >> 8) & 0x01; // Put WTM8 into CTRL2 bit 0
   fifo_ctrl2 |= (settings.force_non_compressed_write & 0x03) << 1; // UNCOPTR_RATE[1:0]
+  fifo_ctrl2 |= settings.cfg_change ? 0x10 : 0x00;  // Enable FIFO storage of configuration changes 
 
   // Set Batching Data Rate for XL and G equal to their ODR
   uint8_t odr = imu->getODRbits();
@@ -145,6 +148,10 @@ void LSM6DSOXFIFOClass::begin()
   read_idx = 0;
   write_idx = 0;
   buffer_empty = true;
+
+  // Decoder
+  previoustagcnt = 4; // Normal values are 0/1/2/3
+  timestamp_counter = 0;
 }
 
 void LSM6DSOXFIFOClass::end()
@@ -222,64 +229,182 @@ int LSM6DSOXFIFOClass::readData(uint16_t& words_read, bool& too_full)
   return result;
 }
 
-int LSM6DSOXFIFOClass::getSample(Sample& sample)
+int LSM6DSOXFIFOClass::getRawWord(RawWord& word)
 {
   int result = -1;
 
-  //bool Gfound = false;
-  //bool XLfound = false;
-
   uint16_t unread = unread_words();
   if(unread > 0) {
-    memcpy((void*)&sample, (const void*)buffer_pointer(read_idx++), (size_t)BUFFER_BYTES_PER_WORD);
-    if(read_idx >= BUFFER_WORDS) read_idx -= BUFFER_WORDS;
+    memcpy((void*)&word, (const void*)buffer_pointer(read_idx), size_t(BUFFER_BYTES_PER_WORD));
+    if(++read_idx >= BUFFER_WORDS) read_idx -= BUFFER_WORDS;
     buffer_empty = (read_idx == write_idx);
     result = 1;
   }
 
-  /* uint8_t tagcnt = (sample.data[0] & 0x6) >> 1;
-  timestamp_counter &= ~0x03;
-  timestamp_counter |= (uint32_t)tagcnt;
-  uint8_t tag = sample.data[0] >> 3;
+  return result;
+}
 
-  switch(tag) {
-    case 0x01: // Gyroscope NC Main Gyroscope uncompressed data
-      break;
-    case 0x02 Accelerometer NC Main Accelerometer uncompressed data
-      break;
-    case 0x03 Temperature Auxiliary Temperature data
-      break;
-    case 0x04 Timestamp Auxiliary Timestamp data
-      break;
-    case 0x05 CFG_Change Auxiliary Meta-information data
-      break;
-    case 0x06 Accelerometer NC_T_2 Main Accelerometer uncompressed batched at two times the previous time slot
-       break;
-   case 0x07 Accelerometer NC_T_1 Main Accelerometer uncompressed data batched at the previous time slot
-      break;
-    case 0x08 Accelerometer 2xC Main Accelerometer 2x compressed data
-      break;
-    case 0x09 Accelerometer 3xC Main Accelerometer 3x compressed data
-      break;
-    case 0x0A Gyroscope NC_T_2 Main Gyroscope uncompressed data batched at two times the previous time slot
-      break;
-    case 0x0B Gyroscope NC_T_1 Main Gyroscope uncompressed data batched at the previous time slot
-      break;
-    case 0x0C Gyroscope 2xC Main Gyroscope 2x compressed data
-      break;
-    case 0x0D Gyroscope 3xC Main Gyroscope 3x compressed data
-      break;
-    case 0x0E Sensor Hub Slave 0 Virtual Sensor hub data from slave 0
-    case 0x0F Sensor Hub Slave 1 Virtual Sensor hub data from slave 1
-    case 0x10 Sensor Hub Slave 2 Virtual Sensor hub data from slave 2
-    case 0x11 Sensor Hub Slave 3 Virtual Sensor hub data from slave 3
-    case 0x12 Step Counter Virtual Step counter data
-    case 0x19 Sensor Hub Nack Virtual Sensor hub nack from slave 0/1/2/
-    default:
-      break;
-  }
-  */
+int LSM6DSOXFIFOClass::getSample(Sample& sample)
+{
+  int result = -1;
 
   return result;
 }
 
+int LSM6DSOXFIFOClass::processWord(uint16_t idx)
+{
+  uint8_t *word = buffer_pointer(idx);
+
+  // Tag counters
+  uint8_t tagcnt = (word[0] & 0x6) >> 1;  // T
+  uint8_t tagcnt_1 = (tagcnt-1) & 0x03;   // T-1
+  uint8_t tagcnt_2 = (tagcnt-2) & 0x03;   // T-2
+
+  // Update timestamp counter based on tag counter
+  if(tagcnt == 0) { // After wrap-around of tag counter
+    timestamp_counter += 4;
+  }
+  timestamp_counter &= 0xFFFFFFFC;        // Reset lower 2 bits....
+  timestamp_counter |= (uint32_t)tagcnt;  //... and fill them with tagcnt
+  
+  // Perform parity check
+  uint8_t parity = word[0] ^ (word[0] >> 4);
+  parity ^= (parity >> 2);
+  parity ^= (parity >> 1);
+  if(parity & 0x01) {
+    return -2; // Parity error -> communication problem?
+  }
+
+  if(previoustagcnt != tagcnt) {
+    // Release sample at T-3
+    
+
+    // Initialize new sample at T
+    sample[tagcnt].counter = timestamp_counter;
+    sample[tagcnt].G_fullScale = fullScaleG;
+    sample[tagcnt].XL_fullScale = fullScaleXL;
+    sample[tagcnt].timestamp = NAN;
+    sample[tagcnt].temperature = NAN;
+  }
+  previoustagcnt = tagcnt;
+
+  // Decode word using its tag
+  uint8_t tag = word[0] >> 3;
+  switch(tag) {
+    case 0x01: // Gyroscope NC Main Gyroscope uncompressed data 
+    {
+      sample[tagcnt].G_X = bytesToInt16(word[1], word[2]);
+      sample[tagcnt].G_Y = bytesToInt16(word[3], word[4]);
+      sample[tagcnt].G_Z = bytesToInt16(word[5], word[6]);
+      break;
+    }
+
+    case 0x02: // Accelerometer NC Main Accelerometer uncompressed data
+    {
+      sample[tagcnt].XL_X = bytesToInt16(word[1], word[2]);
+      sample[tagcnt].XL_Y = bytesToInt16(word[3], word[4]);
+      sample[tagcnt].XL_Z = bytesToInt16(word[5], word[6]);
+      break;
+    }
+
+    case 0x03: // Temperature Auxiliary Temperature data
+    {
+      sample[tagcnt].temperature = imu->temperatureToCelsius(bytesToInt16(word[1], word[2]));
+      break;
+    }
+
+    case 0x04: // Timestamp Auxiliary Timestamp data
+    {
+      uint32_t timestamp = 
+        (((uint32_t)word[4]) << 24) | 
+        (((uint32_t)word[3]) << 16) |
+        (((uint32_t)word[2]) <<  8) |
+          ((uint32_t)word[1]);
+      sample[tagcnt].timestamp = timestamp * timestampCorrection;
+      break;
+    }
+
+    case 0x05: // CFG_Change Auxiliary Meta-information data
+    {
+      // Gyro full range
+      uint8_t fs_g = word[2] >> 5; // FS1_G FS0_G FS_125
+      fullScaleG = imu->fs_g_to_range(fs_g);
+      sample[tagcnt].G_fullScale = fullScaleG;
+
+      // Accelerometer full range
+      uint8_t fs_xl = word[3] >> 6; // FS1_XL FS0_XL
+      fullScaleXL = imu->fs_xl_to_range(fs_xl);
+      sample[tagcnt].XL_fullScale = fullScaleXL;
+      break;
+    }
+
+    case 0x06: // Accelerometer NC_T_2 Main Accelerometer uncompressed batched at two times the previous time slot
+    {
+      sample[tagcnt_2].XL_X = bytesToInt16(word[1], word[2]);
+      sample[tagcnt_2].XL_Y = bytesToInt16(word[3], word[4]);
+      sample[tagcnt_2].XL_Z = bytesToInt16(word[5], word[6]);
+      sample[tagcnt_2].XL_fullScale = fullScaleXL;
+      break;
+    }
+
+    case 0x07: // Accelerometer NC_T_1 Main Accelerometer uncompressed data batched at the previous time slot
+    {
+      sample[tagcnt_1].XL_X = bytesToInt16(word[1], word[2]);
+      sample[tagcnt_1].XL_Y = bytesToInt16(word[3], word[4]);
+      sample[tagcnt_1].XL_Z = bytesToInt16(word[5], word[6]);
+      sample[tagcnt_1].XL_fullScale = fullScaleXL;
+      break;
+    }
+
+    case 0x08: // Accelerometer 2xC Main Accelerometer 2x compressed data
+    {
+      break;
+    }
+
+    case 0x09: // Accelerometer 3xC Main Accelerometer 3x compressed data
+    {
+      break;
+    }
+
+    case 0x0A: // Gyroscope NC_T_2 Main Gyroscope uncompressed data batched at two times the previous time slot
+    {
+      sample[tagcnt_2].counter = timestamp_counter-2;
+      sample[tagcnt_2].G_X = bytesToInt16(word[1], word[2]);
+      sample[tagcnt_2].G_Y = bytesToInt16(word[3], word[4]);
+      sample[tagcnt_2].G_Z = bytesToInt16(word[5], word[6]);
+      sample[tagcnt_2].G_fullScale = fullScaleG;
+      break;
+    }
+
+    case 0x0B: // Gyroscope NC_T_1 Main Gyroscope uncompressed data batched at the previous time slot
+    {
+      sample[tagcnt_1].counter = timestamp_counter-1;
+      sample[tagcnt_1].G_X = bytesToInt16(word[1], word[2]);
+      sample[tagcnt_1].G_Y = bytesToInt16(word[3], word[4]);
+      sample[tagcnt_1].G_Z = bytesToInt16(word[5], word[6]);
+      sample[tagcnt_1].G_fullScale = fullScaleG;
+      break;
+    }
+
+    case 0x0C: // Gyroscope 2xC Main Gyroscope 2x compressed data
+    {
+      break;
+    }
+
+    case 0x0D: // Gyroscope 3xC Main Gyroscope 3x compressed data
+    {
+      break;
+    }
+
+    case 0x0E: // Sensor Hub Slave 0 Virtual Sensor hub data from slave 0
+    case 0x0F: // Sensor Hub Slave 1 Virtual Sensor hub data from slave 1
+    case 0x10: // Sensor Hub Slave 2 Virtual Sensor hub data from slave 2
+    case 0x11: // Sensor Hub Slave 3 Virtual Sensor hub data from slave 3
+    case 0x12: // Step Counter Virtual Step counter data
+    case 0x19: // Sensor Hub Nack Virtual Sensor hub nack from slave 0/1/2/
+    default:
+    {
+      break;
+    }
+  }
+}

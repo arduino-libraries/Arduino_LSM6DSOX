@@ -25,8 +25,8 @@
 struct SensorSettings {
 public:
   uint16_t sampleRate;
-	uint8_t gyroRange;
-	uint16_t accelRange;
+	uint16_t gyroRange;
+	uint8_t accelRange;
 };
 
 class LSM6DSOXClass {
@@ -54,13 +54,15 @@ class LSM6DSOXClass {
     float accelerationSampleRate(); // Sampling rate of the sensor.
     int accelerationAvailable(); // Check for available data from accelerometer
     uint8_t accelerationFullScale(); // Retrieve current accelerometer full scale setting
+    int setAccelerationFullScale(uint8_t range);
 
     // Gyroscope
     int readGyroscope(float& x, float& y, float& z); // Results are in degrees/second.
     float gyroscopeSampleRate(); // Sampling rate of the sensor.
     int gyroscopeAvailable(); // Check for available data from gyroscope
     uint16_t gyroscopeFullScale(); // Retrieve current gyroscope full scale setting
-
+    int setGyroscopeFullScale(uint8_t range);
+  
     // Temperature
     int readTemperature(int& temperature_deg);
     int readTemperatureFloat(float& temperature_deg);
@@ -68,7 +70,6 @@ class LSM6DSOXClass {
 
     // Timestamp
     int readTimestamp(uint32_t& timestamp);
-    int readInternalFrequency(int8_t& freq_fine);
     int readTimestampDouble(double& timestamp);
     int resetTimestamp();
 
@@ -81,7 +82,18 @@ class LSM6DSOXClass {
     int resetSelfTestG();
     
   private:
+    uint8_t fs_xl_to_range(uint8_t fs_xl);
+    uint16_t fs_g_to_range(uint8_t fs_g);
+
+    float temperatureToCelsius(int16_t temperature_raw);
+
+    int readInternalFrequency(int8_t& freq_fine);
+    double correctTimestamp(uint32_t timestamp, int8_t freq_fine) { 
+      return timestamp / (40000 * (1 + 0.0015 * freq_fine));  // See AN5272, par 6.4
+    }
+
     int setSelfTestReg(uint8_t mask, uint8_t config);
+
     int readRegister(uint8_t address);
     int readRegisters(uint8_t address, uint8_t* data, size_t length);
     int writeRegister(uint8_t address, uint8_t value);

@@ -35,6 +35,7 @@ public:
   bool counter_gyro;                  //false = count XL, true = count G
   bool compression;                   //true = enable compression
   uint8_t force_non_compressed_write; //0=never, 1=every 8 BDR, 2=16 BDR, 3=32 BDR
+  bool cfg_change;                    //store CFG-change data in FIFO
   uint8_t fifo_mode;                  //3-bit pattern, see datasheet
 };
 
@@ -48,7 +49,6 @@ public:
   uint16_t DIFF_FIFO;   // Number of unread sensor data (TAG + 6 bytes) stored in FIFO
 };
 
-/*
 struct Sample {
   int16_t G_X;
   int16_t G_Y;
@@ -57,11 +57,14 @@ struct Sample {
   int16_t XL_Y;
   int16_t XL_Z;
   double timestamp;     // May be NaN
+  float temperature;    // May be NaN
+  uint32_t counter;     // Lowest 2 bits provided by tag byte (TAG_CNT)
   uint16_t XL_fullScale;
   uint8_t G_fullScale;
-}; */
-struct Sample {
-  uint8_t data[7];
+};
+
+struct RawWord {
+  uint8_t bytes[BUFFER_BYTES_PER_WORD];
 };
 
 class LSM6DSOXClass;
@@ -81,13 +84,18 @@ class LSM6DSOXFIFOClass {
       bool counter_gyro = true,           //Use G count (rather than XL)
       bool compression = false,
       uint8_t force_non_compressed_write = 2, // 0=never, 1=every 8 BDR, 2=16 BDR, 3=32 BDR
+      bool cfg_change = true,
       uint8_t fifo_mode = 6);             //Continuous mode
 
     void begin();
     void end();
 
+    // Fetch data from IMU
     int readStatus(FIFOStatus& status);
     int readData(uint16_t& words_read, bool& too_full);
+
+    // Retrieve fetched data from local buffer
+    int getRawWord(RawWord& word);
     int getSample(Sample& sample);
 
     uint8_t         buffer[BUFFER_WORDS * BUFFER_BYTES_PER_WORD];
@@ -105,6 +113,15 @@ class LSM6DSOXFIFOClass {
     uint8_t*        buffer_pointer(uint16_t idx) { return &buffer[idx * BUFFER_BYTES_PER_WORD]; }
     uint16_t        unread_words();
 
+    int             processWord(uint16_t idx);
+    
+    uint16_t        bytesToInt16(uint8_t lo, uint8_t hi)
+    { 
+      return (int16_t)((uint16_t)lo | ((uint16_t)hi) << 8);
+    }
+
+    Sample          sample[4];    // We need to contain the words at T-3, T-2, T-1 and T
+    uint8_t         previoustagcnt;
     uint32_t        timestamp_counter;
 };
 

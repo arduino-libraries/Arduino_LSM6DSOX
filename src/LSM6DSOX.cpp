@@ -200,10 +200,6 @@ int LSM6DSOXClass::begin()
   // Enable timestamp counter
   writeRegister(LSM6DSOX_CTRL10_C, 0x20);
 
-  // Start FIFO. Note that its settings should be set as necessary before this
-  // happens!
-  //fifo.begin();
-
   return 1;
 }
 
@@ -283,16 +279,36 @@ float LSM6DSOXClass::accelerationSampleRate()
   return NAN;
 }
 
-uint8_t LSM6DSOXClass::accelerationFullScale()
+uint8_t LSM6DSOXClass::fs_xl_to_range(uint8_t fs_xl)
 {
-  int ctrl1_xl = readRegister(LSM6DSOX_CTRL1_XL);
-  uint8_t fs_xl = (ctrl1_xl & 0x0C) >> 2;
   for(auto &it : mapAccelRangeToFSXL) { 
     if(it.second == fs_xl) { 
       return it.first;
     }
   }
   return 0;
+}
+
+uint8_t LSM6DSOXClass::accelerationFullScale()
+{
+  int ctrl1_xl = readRegister(LSM6DSOX_CTRL1_XL);
+  uint8_t fs_xl = (ctrl1_xl & 0x0C) >> 2;
+  return fs_xl_to_range(fs_xl);
+}
+
+int LSM6DSOXClass::setAccelerationFullScale(uint8_t range) // 2/4/8/16
+{
+  // FS XL
+  uint8_t fs_xl = 0b00; // Default 2g
+  if(mapAccelRangeToFSXL.count(range) > 0) {
+    fs_xl = mapAccelRangeToFSXL[range];
+  } else {
+    return -2; // Invalid range specified
+  }
+
+  // Modify FS0_XL and FS1_XL
+  int ctrl1_xl = readRegister(LSM6DSOX_CTRL1_XL) & 0xF3;
+  return writeRegister(LSM6DSOX_CTRL1_XL, ((uint8_t)ctrl1_xl) | (fs_xl << 2));
 }
 
 int LSM6DSOXClass::readGyroscope(float& x, float& y, float& z)
@@ -335,16 +351,34 @@ float LSM6DSOXClass::gyroscopeSampleRate()
   return NAN;
 }
 
-uint16_t LSM6DSOXClass::gyroscopeFullScale()
+uint16_t LSM6DSOXClass::fs_g_to_range(uint8_t fs_g)
 {
-  int ctrl2_g = readRegister(LSM6DSOX_CTRL2_G);
-  uint8_t fs_g = (ctrl2_g & 0x0E) >> 1;
   for(auto &it : mapGyroRangeToFSG) { 
     if(it.second == fs_g) { 
       return it.first;
     }
   }
   return 0;
+}
+
+uint16_t LSM6DSOXClass::gyroscopeFullScale()
+{
+  int ctrl2_g = readRegister(LSM6DSOX_CTRL2_G);
+  uint8_t fs_g = (ctrl2_g & 0x0E) >> 1;
+  return fs_g_to_range(fs_g);
+}
+
+int LSM6DSOXClass::setGyroscopeFullScale(uint8_t range) // 125/250/500/1000/2000
+{
+  // FS G
+  uint8_t fs_g = 0b100; // Default 1000 deg/s
+  if(mapGyroRangeToFSG.count(range) > 0) {
+    fs_g = mapGyroRangeToFSG[range];
+  }
+
+  // Modify FS_0_G, FS_1_G and FS_125
+  int ctrl2_g = readRegister(LSM6DSOX_CTRL2_G) & 0xF1;
+  return writeRegister(LSM6DSOX_CTRL2_G, ((uint8_t)ctrl2_g) | (fs_g << 1));
 }
 
 int LSM6DSOXClass::readTemperature(int& temperature_deg)
@@ -366,13 +400,17 @@ int LSM6DSOXClass::readTemperatureFloat(float& temperature_deg)
     return 0;
   }
 
+  temperature_deg = temperatureToCelsius(temperature_raw);
+
+  return 1;
+}
+
+float LSM6DSOXClass::temperatureToCelsius(int16_t temperature_raw) {
   /* Convert to °C. */
   static int const TEMPERATURE_LSB_per_DEG = 256;
   static int const TEMPERATURE_OFFSET_DEG = 25;
 
-  temperature_deg = (static_cast<float>(temperature_raw) / TEMPERATURE_LSB_per_DEG) + TEMPERATURE_OFFSET_DEG;
-
-  return 1;
+  return (static_cast<float>(temperature_raw) / TEMPERATURE_LSB_per_DEG) + TEMPERATURE_OFFSET_DEG;
 }
 
 int LSM6DSOXClass::temperatureAvailable()
@@ -388,10 +426,10 @@ int LSM6DSOXClass::readTimestamp(uint32_t& timestamp) {
   uint8_t buffer[4];
   int result = readRegisters(LSM6DSOX_TIMESTAMP0, buffer, 4);
   if( result == 1 ) {
-    timestamp = (uint32_t)(buffer[3] << 24) | 
-                (uint32_t)(buffer[2] << 16) |
-                (uint32_t)(buffer[1] <<  8) |
-                (uint32_t)(buffer[0]);
+    timestamp = (((uint32_t)buffer[3]) << 24) | 
+                (((uint32_t)buffer[2]) << 16) |
+                (((uint32_t)buffer[1]) <<  8) |
+                 ((uint32_t)buffer[0]);
   }
   return result;
 }
@@ -409,11 +447,11 @@ int LSM6DSOXClass::readTimestampDouble(double& timestamp) {
   uint32_t t;
   int result = readTimestamp(t);
   if( result == 1 ) {
+    // See AN5272, par 6.4
     int8_t freq_fine;
     result = readInternalFrequency(freq_fine);
     if( result >= 0 ) {
-      // See AN5272, par 6.4
-      timestamp = t / (40000 * (1 + 0.0015 * freq_fine));
+      timestamp = correctTimestamp(t, freq_fine);
     } else {
       return -1;
     }
