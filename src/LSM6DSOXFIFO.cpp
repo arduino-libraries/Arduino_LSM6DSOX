@@ -165,6 +165,7 @@ void LSM6DSOXFIFOClass::end()
 
 uint16_t LSM6DSOXFIFOClass::unread_words()
 {
+  // Note that write_id and read_idx are always >= 0
   int16_t diff = (int16_t)write_idx - (int16_t)read_idx;
   if(diff < 0) {
     diff += BUFFER_WORDS;
@@ -244,14 +245,7 @@ int LSM6DSOXFIFOClass::getRawWord(RawWord& word)
   return result;
 }
 
-int LSM6DSOXFIFOClass::getSample(Sample& sample)
-{
-  int result = -1;
-
-  return result;
-}
-
-int LSM6DSOXFIFOClass::processWord(uint16_t idx)
+int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 {
   uint8_t *word = buffer_pointer(idx);
 
@@ -260,8 +254,8 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx)
   uint8_t tagcnt_1 = (tagcnt-1) & 0x03;   // T-1
   uint8_t tagcnt_2 = (tagcnt-2) & 0x03;   // T-2
 
-  // Update timestamp counter based on tag counter
-  if(tagcnt == 0) { // After wrap-around of tag counter
+  // Update timestamp counter ater wrap-around of tag counter
+  if((tagcnt == 0) && (previoustagcnt == 3)) {
     timestamp_counter += 4;
   }
   timestamp_counter &= 0xFFFFFFFC;        // Reset lower 2 bits....
@@ -275,14 +269,18 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx)
     return -2; // Parity error -> communication problem?
   }
 
+  // So far, no samples extracted
+  int result = 0;
+
   if(previoustagcnt != tagcnt) {
-    // Release sample at T-3
-    
+    // Release sample at T-3 by copying it
+    extracted_sample = sample[tagcnt];
+    result = 1; // There is a valid sample available
 
     // Initialize new sample at T
+    // DON'T touch G and XL data: it may be used as the current state (T-3)
+    // for the compression algorithm
     sample[tagcnt].counter = timestamp_counter;
-    sample[tagcnt].G_fullScale = fullScaleG;
-    sample[tagcnt].XL_fullScale = fullScaleXL;
     sample[tagcnt].timestamp = NAN;
     sample[tagcnt].temperature = NAN;
   }
@@ -296,6 +294,7 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx)
       sample[tagcnt].G_X = bytesToInt16(word[1], word[2]);
       sample[tagcnt].G_Y = bytesToInt16(word[3], word[4]);
       sample[tagcnt].G_Z = bytesToInt16(word[5], word[6]);
+      sample[tagcnt].G_fullScale = fullScaleG;
       break;
     }
 
@@ -304,6 +303,7 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx)
       sample[tagcnt].XL_X = bytesToInt16(word[1], word[2]);
       sample[tagcnt].XL_Y = bytesToInt16(word[3], word[4]);
       sample[tagcnt].XL_Z = bytesToInt16(word[5], word[6]);
+      sample[tagcnt].XL_fullScale = fullScaleXL;
       break;
     }
 
@@ -358,11 +358,33 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx)
 
     case 0x08: // Accelerometer 2xC Main Accelerometer 2x compressed data
     {
+      uint8_t tagcnt_3 = tagcnt; // At this point sample[tagcnt] refers to T-3!!!
+      sample[tagcnt_2].XL_X = sample[tagcnt_3].XL_X + int8ToInt16(word[1]);
+      sample[tagcnt_2].XL_Y = sample[tagcnt_3].XL_Y + int8ToInt16(word[2]);
+      sample[tagcnt_2].XL_Z = sample[tagcnt_3].XL_Z + int8ToInt16(word[3]);
+      sample[tagcnt_1].XL_X = sample[tagcnt_2].XL_X + int8ToInt16(word[4]);
+      sample[tagcnt_1].XL_Y = sample[tagcnt_2].XL_Y + int8ToInt16(word[5]);
+      sample[tagcnt_1].XL_Z = sample[tagcnt_2].XL_Z + int8ToInt16(word[6]);
+      sample[tagcnt_2].XL_fullScale = fullScaleXL;
+      sample[tagcnt_1].XL_fullScale = fullScaleXL;
       break;
     }
 
     case 0x09: // Accelerometer 3xC Main Accelerometer 3x compressed data
     {
+      uint8_t tagcnt_3 = tagcnt; // At this point sample[tagcnt] refers to T-3!!!
+      sample[tagcnt_2].XL_X = sample[tagcnt_3].XL_X + int5ToInt16(word[1] & 0x1F);
+      sample[tagcnt_2].XL_Y = sample[tagcnt_3].XL_Y + int5ToInt16(((word[1] & 0xE0) >> 5) | (word[2] & 0x03));
+      sample[tagcnt_2].XL_Z = sample[tagcnt_3].XL_Z + int5ToInt16((word[2] & 0x7C) >> 2);
+      sample[tagcnt_1].XL_X = sample[tagcnt_2].XL_X + int5ToInt16(word[3] & 0x1F);
+      sample[tagcnt_1].XL_Y = sample[tagcnt_2].XL_Y + int5ToInt16(((word[3] & 0xE0) >> 5) | (word[4] & 0x03));
+      sample[tagcnt_1].XL_Z = sample[tagcnt_2].XL_Z + int5ToInt16((word[4] & 0x7C) >> 2);
+      sample[tagcnt].XL_X = sample[tagcnt_1].XL_X + int5ToInt16(word[5] & 0x1F);
+      sample[tagcnt].XL_Y = sample[tagcnt_1].XL_Y + int5ToInt16(((word[5] & 0xE0) >> 5) | (word[6] & 0x03));
+      sample[tagcnt].XL_Z = sample[tagcnt_1].XL_Z + int5ToInt16((word[6] & 0x7C) >> 2);
+      sample[tagcnt_2].XL_fullScale = fullScaleXL;
+      sample[tagcnt_1].XL_fullScale = fullScaleXL;
+      sample[tagcnt].XL_fullScale = fullScaleXL;
       break;
     }
 
@@ -388,12 +410,34 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx)
 
     case 0x0C: // Gyroscope 2xC Main Gyroscope 2x compressed data
     {
+      uint8_t tagcnt_3 = tagcnt; // At this point sample[tagcnt] refers to T-3!!!
+      sample[tagcnt_2].G_X = sample[tagcnt_3].G_X + int8ToInt16(word[1]);
+      sample[tagcnt_2].G_Y = sample[tagcnt_3].G_Y + int8ToInt16(word[2]);
+      sample[tagcnt_2].G_Z = sample[tagcnt_3].G_Z + int8ToInt16(word[3]);
+      sample[tagcnt_1].G_X = sample[tagcnt_2].G_X + int8ToInt16(word[4]);
+      sample[tagcnt_1].G_Y = sample[tagcnt_2].G_Y + int8ToInt16(word[5]);
+      sample[tagcnt_1].G_Z = sample[tagcnt_2].G_Z + int8ToInt16(word[6]);
+      sample[tagcnt_2].G_fullScale = fullScaleG;
+      sample[tagcnt_1].G_fullScale = fullScaleG;
       break;
     }
 
     case 0x0D: // Gyroscope 3xC Main Gyroscope 3x compressed data
     {
-      break;
+      uint8_t tagcnt_3 = tagcnt; // At this point sample[tagcnt] refers to T-3!!!
+      sample[tagcnt_2].G_X = sample[tagcnt_3].G_X + int5ToInt16(word[1] & 0x1F);
+      sample[tagcnt_2].G_Y = sample[tagcnt_3].G_Y + int5ToInt16(((word[1] & 0xE0) >> 5) | (word[2] & 0x03));
+      sample[tagcnt_2].G_Z = sample[tagcnt_3].G_Z + int5ToInt16((word[2] & 0x7C) >> 2);
+      sample[tagcnt_1].G_X = sample[tagcnt_2].G_X + int5ToInt16(word[3] & 0x1F);
+      sample[tagcnt_1].G_Y = sample[tagcnt_2].G_Y + int5ToInt16(((word[3] & 0xE0) >> 5) | (word[4] & 0x03));
+      sample[tagcnt_1].G_Z = sample[tagcnt_2].G_Z + int5ToInt16((word[4] & 0x7C) >> 2);
+      sample[tagcnt].G_X = sample[tagcnt_1].G_X + int5ToInt16(word[5] & 0x1F);
+      sample[tagcnt].G_Y = sample[tagcnt_1].G_Y + int5ToInt16(((word[5] & 0xE0) >> 5) | (word[6] & 0x03));
+      sample[tagcnt].G_Z = sample[tagcnt_1].G_Z + int5ToInt16((word[6] & 0x7C) >> 2);
+      sample[tagcnt_2].G_fullScale = fullScaleG;
+      sample[tagcnt_1].G_fullScale = fullScaleG;
+      sample[tagcnt].G_fullScale = fullScaleG;
+     break;
     }
 
     case 0x0E: // Sensor Hub Slave 0 Virtual Sensor hub data from slave 0
@@ -404,7 +448,29 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx)
     case 0x19: // Sensor Hub Nack Virtual Sensor hub nack from slave 0/1/2/
     default:
     {
+      // Ignore these (and other) tags
       break;
     }
   }
+
+  return result;
+}
+
+int16_t LSM6DSOXFIFOClass::bytesToInt16(uint8_t lo, uint8_t hi)
+{ 
+   return ((int16_t)hi << 8) + lo;
+}
+
+int16_t LSM6DSOXFIFOClass::int5ToInt16(uint8_t five)
+{
+  return (five & 0x10) ? 
+    (int16_t)five | 0xFFE0 : //sign extension
+    (int16_t)five & 0x000F;
+} 
+
+int16_t LSM6DSOXFIFOClass::int8ToInt16(uint8_t eight)
+{
+  return (eight & 0x80) ? 
+    (int16_t)eight | 0xFF00 : //sign extension
+    (int16_t)eight & 0x007F;
 }
