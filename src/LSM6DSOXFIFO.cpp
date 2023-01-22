@@ -245,6 +245,38 @@ int LSM6DSOXFIFOClass::getRawWord(RawWord& word)
   return result;
 }
 
+int LSM6DSOXFIFOClass::getSample(Sample& sample)
+{
+  int result = -1;
+  while(result < 1) {
+    // Process all words available in the local buffer,
+    // until a sample is produced or no more words are
+    // available in the local buffer.
+    while((result < 1) && (unread_words() > 0)) {
+      // Process word at read idx pointer
+      result = processWord(read_idx, sample);
+
+      // Update read idx pointer
+      if(++read_idx >= BUFFER_WORDS) read_idx -= BUFFER_WORDS;
+      buffer_empty = (read_idx == write_idx);
+    }
+
+    // If no sample was produced, read a fresh batch of
+    // words from the IMU to the local buffer. Then resume
+    // processing them, again until a sample is produced.
+    if(result < 1) {
+      uint16_t words_read = 0;
+      bool too_full = false;
+      int read_result = readData(words_read, too_full);
+      if(read_result < 0) {
+        return read_result;
+      }
+    }
+  }
+
+  return result;
+}
+
 int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 {
   uint8_t *word = buffer_pointer(idx);

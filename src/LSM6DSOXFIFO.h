@@ -96,7 +96,7 @@ class LSM6DSOXFIFOClass {
 
     // Retrieve fetched data from local buffer
     int getRawWord(RawWord& word);
-    int processWord(uint16_t idx, Sample& extracted_sample);
+    int getSample(Sample& sample);
 
     uint8_t         buffer[BUFFER_WORDS * BUFFER_BYTES_PER_WORD];
     uint16_t        read_idx;
@@ -109,10 +109,12 @@ class LSM6DSOXFIFOClass {
 
   private:
     LSM6DSOXClass*  imu;
+    
+    uint16_t        unread_words();
+    int             processWord(uint16_t idx, Sample& extracted_sample);
 
     uint8_t*        buffer_pointer(uint16_t idx) { return &buffer[idx * BUFFER_BYTES_PER_WORD]; }
-    uint16_t        unread_words();
-    
+
     int16_t         bytesToInt16(uint8_t lo, uint8_t hi);
     int16_t         int5ToInt16(uint8_t five);
     int16_t         int8ToInt16(uint8_t eight);
