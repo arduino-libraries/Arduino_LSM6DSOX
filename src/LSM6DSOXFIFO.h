@@ -106,6 +106,7 @@ class LSM6DSOXFIFOClass {
     double          timestampCorrection;
     uint8_t         fullScaleXL;
     uint16_t        fullScaleG;
+    bool            compressionEnabled;
 
   private:
     LSM6DSOXClass*  imu;
@@ -119,7 +120,7 @@ class LSM6DSOXFIFOClass {
     int16_t         int5ToInt16(uint8_t five);
     int16_t         int8ToInt16(uint8_t eight);
 
-    Sample          sample[4];    // We need to contain the words at T-3, T-2, T-1 and T
+    Sample          sample[4];    // Ring buffer, contains the words at T-3, T-2, T-1 and T
     uint8_t         previoustagcnt;
     uint32_t        timestamp_counter;
 };

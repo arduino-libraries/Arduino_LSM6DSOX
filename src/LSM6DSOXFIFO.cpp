@@ -105,6 +105,7 @@ void LSM6DSOXFIFOClass::begin()
   imu->writeRegister(LSM6DSOX_FUNC_CFG_ACCESS, 0x80); // Enable embedded function registers access
   imu->writeRegister(LSM6DSOX_EMB_FUNC_EN_B, emb_func_en_b); // Enable or disable compression
   imu->writeRegister(LSM6DSOX_FUNC_CFG_ACCESS, 0x00); // Disable embedded function registers access
+  compressionEnabled = settings.compression;
 
   // Now find all configuration values
   uint8_t fifo_ctrl1 = settings.watermark_level & 0xFF; // WTM0..8
@@ -255,6 +256,10 @@ int LSM6DSOXFIFOClass::getSample(Sample& sample)
     while((result < 1) && (unread_words() > 0)) {
       // Process word at read idx pointer
       result = processWord(read_idx, sample);
+      // If an error occurred (result < 0), return it to the caller.
+      if(result < 0) {
+        return result;
+      }
 
       // Update read idx pointer
       if(++read_idx >= BUFFER_WORDS) read_idx -= BUFFER_WORDS;
@@ -267,9 +272,17 @@ int LSM6DSOXFIFOClass::getSample(Sample& sample)
     if(result < 1) {
       uint16_t words_read = 0;
       bool too_full = false;
+      // Read block of data. Note that too_full will always be false,
+      // since the buffer was emptied above.
       int read_result = readData(words_read, too_full);
+      // If an error occurred (result < 0), return it to the caller.
       if(read_result < 0) {
         return read_result;
+      }
+      // If no words were read (so fifo is empty), return
+      // 0 as a result
+      if(words_read == 0) {
+        return 0;
       }
     }
   }
@@ -285,6 +298,7 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
   uint8_t tagcnt = (word[0] & 0x6) >> 1;  // T
   uint8_t tagcnt_1 = (tagcnt-1) & 0x03;   // T-1
   uint8_t tagcnt_2 = (tagcnt-2) & 0x03;   // T-2
+  uint8_t tagcnt_3 = (tagcnt-3) & 0x03;   // T-3
 
   // Update timestamp counter ater wrap-around of tag counter
   if((tagcnt == 0) && (previoustagcnt == 3)) {
@@ -301,22 +315,25 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
     return -2; // Parity error -> communication problem?
   }
 
-  // So far, no samples extracted
-  int result = 0;
-
+  // Upon each new tagcnt a sample is released
+  int result = 0; // So far, no samples extracted
   if(previoustagcnt != tagcnt) {
-    // Release sample at T-3 by copying it
-    extracted_sample = sample[tagcnt];
+    previoustagcnt = tagcnt;
+
+    if(compressionEnabled) {
+      // Release sample at T-3 by copying it
+      extracted_sample = sample[tagcnt_3];
+    } else {
+      // Release sample at T-1 by copying it
+      extracted_sample = sample[tagcnt_1];
+    }
     result = 1; // There is a valid sample available
 
     // Initialize new sample at T
-    // DON'T touch G and XL data: it may be used as the current state (T-3)
-    // for the compression algorithm
     sample[tagcnt].counter = timestamp_counter;
     sample[tagcnt].timestamp = NAN;
     sample[tagcnt].temperature = NAN;
   }
-  previoustagcnt = tagcnt;
 
   // Decode word using its tag
   uint8_t tag = word[0] >> 3;
@@ -367,6 +384,9 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
       uint8_t fs_xl = word[3] >> 6; // FS1_XL FS0_XL
       fullScaleXL = imu->fs_xl_to_range(fs_xl);
       sample[tagcnt].XL_fullScale = fullScaleXL;
+
+      // Compression
+      compressionEnabled = (word[4] & 0x80) == 0x80;
       break;
     }
 
@@ -390,7 +410,6 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 
     case 0x08: // Accelerometer 2xC Main Accelerometer 2x compressed data
     {
-      uint8_t tagcnt_3 = tagcnt; // At this point sample[tagcnt] refers to T-3!!!
       sample[tagcnt_2].XL_X = sample[tagcnt_3].XL_X + int8ToInt16(word[1]);
       sample[tagcnt_2].XL_Y = sample[tagcnt_3].XL_Y + int8ToInt16(word[2]);
       sample[tagcnt_2].XL_Z = sample[tagcnt_3].XL_Z + int8ToInt16(word[3]);
@@ -404,7 +423,6 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 
     case 0x09: // Accelerometer 3xC Main Accelerometer 3x compressed data
     {
-      uint8_t tagcnt_3 = tagcnt; // At this point sample[tagcnt] refers to T-3!!!
       sample[tagcnt_2].XL_X = sample[tagcnt_3].XL_X + int5ToInt16(word[1] & 0x1F);
       sample[tagcnt_2].XL_Y = sample[tagcnt_3].XL_Y + int5ToInt16(((word[1] & 0xE0) >> 5) | (word[2] & 0x03));
       sample[tagcnt_2].XL_Z = sample[tagcnt_3].XL_Z + int5ToInt16((word[2] & 0x7C) >> 2);
@@ -442,7 +460,6 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 
     case 0x0C: // Gyroscope 2xC Main Gyroscope 2x compressed data
     {
-      uint8_t tagcnt_3 = tagcnt; // At this point sample[tagcnt] refers to T-3!!!
       sample[tagcnt_2].G_X = sample[tagcnt_3].G_X + int8ToInt16(word[1]);
       sample[tagcnt_2].G_Y = sample[tagcnt_3].G_Y + int8ToInt16(word[2]);
       sample[tagcnt_2].G_Z = sample[tagcnt_3].G_Z + int8ToInt16(word[3]);
@@ -456,7 +473,6 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 
     case 0x0D: // Gyroscope 3xC Main Gyroscope 3x compressed data
     {
-      uint8_t tagcnt_3 = tagcnt; // At this point sample[tagcnt] refers to T-3!!!
       sample[tagcnt_2].G_X = sample[tagcnt_3].G_X + int5ToInt16(word[1] & 0x1F);
       sample[tagcnt_2].G_Y = sample[tagcnt_3].G_Y + int5ToInt16(((word[1] & 0xE0) >> 5) | (word[2] & 0x03));
       sample[tagcnt_2].G_Z = sample[tagcnt_3].G_Z + int5ToInt16((word[2] & 0x7C) >> 2);
