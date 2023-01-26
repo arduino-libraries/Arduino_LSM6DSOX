@@ -43,8 +43,7 @@ class LSM6DSOXClass {
     ~LSM6DSOXClass();
 
     void initializeSettings(uint16_t sampleRate = 416, uint16_t gyroRange = 1000, uint8_t accelRange = 8);
-    uint8_t getODRbits();
-
+    
     int begin();
     void end();
     int reset();
@@ -81,10 +80,11 @@ class LSM6DSOXClass {
     int setNegSelfTestG();
     int resetSelfTestG();
     
-  private:
+private:  
+    uint8_t getODRbits();
+
     uint8_t fs_xl_to_range(uint8_t fs_xl);
     uint16_t fs_g_to_range(uint8_t fs_g);
-
     float temperatureToCelsius(int16_t temperature_raw);
 
     int readInternalFrequency(int8_t& freq_fine);

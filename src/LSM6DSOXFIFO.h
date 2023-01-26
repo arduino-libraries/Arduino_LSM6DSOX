@@ -123,6 +123,15 @@ class LSM6DSOXFIFOClass {
     Sample          sample[4];    // Ring buffer, contains the words at T-3, T-2, T-1 and T
     uint8_t         previoustagcnt;
     uint32_t        timestamp_counter;
+
+    // For convenience and clarity
+    const uint8_t FIFO_DATA_OUT_TAG = 0;
+    const uint8_t FIFO_DATA_OUT_X_L = 1;
+    const uint8_t FIFO_DATA_OUT_X_H = 2;
+    const uint8_t FIFO_DATA_OUT_Y_L = 3;
+    const uint8_t FIFO_DATA_OUT_Y_H = 4;
+    const uint8_t FIFO_DATA_OUT_Z_L = 5;
+    const uint8_t FIFO_DATA_OUT_Z_H = 6;
 };
 
 #endif
