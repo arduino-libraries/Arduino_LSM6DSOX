@@ -25,6 +25,7 @@
 // Buffer size. Define extra slots for compression, timestamp and config change
 #define BUFFER_WORDS          (512 + 5) // Number of 'words'
 #define BUFFER_BYTES_PER_WORD 7         // Tag + 3 * (2 byte word)
+#define SAMPLE_BUFFER_SIZE    4         // 4 possible TAGCNT values (0-3)
 
 struct FIFOSettings {
 public:
@@ -59,8 +60,8 @@ struct Sample {
   double timestamp;     // May be NaN
   float temperature;    // May be NaN
   uint32_t counter;     // Lowest 2 bits provided by tag byte (TAG_CNT)
-  uint16_t XL_fullScale;
-  uint8_t G_fullScale;
+  uint8_t XL_fullScale;
+  uint16_t G_fullScale;
 };
 
 struct RawWord {
@@ -111,17 +112,35 @@ class LSM6DSOXFIFOClass {
   private:
     LSM6DSOXClass*  imu;
     
+
+    void            updateReadPointer();
     uint16_t        unread_words();
-    int             processWord(uint16_t idx, Sample& extracted_sample);
+
+    enum class WordStatus { 
+      OK,
+      TAG_NOT_IMPLEMENTED,
+      UNKNOWN_TAG,
+      SAMPLE_EXTRACTED_DO_NOT_DECODE_WORD,
+      SAMPLE_EXTRACTED_DO_DECODE_WORD,
+      SAMPLE_NOT_EXTRACTED_DO_DECODE_WORD,
+      MISSING_TAGCNT_ERROR,
+      PARITY_ERROR,
+      LOGIC_ERROR
+    };
+    WordStatus      inspectWord(uint16_t idx);
+    WordStatus      releaseSample(uint16_t idx, Sample& extracted_sample);
+    WordStatus      decodeWord(uint16_t idx);
 
     uint8_t*        buffer_pointer(uint16_t idx) { return &buffer[idx * BUFFER_BYTES_PER_WORD]; }
-
+    void            initializeSample(uint8_t idx);
+  
     int16_t         bytesToInt16(uint8_t lo, uint8_t hi);
     int16_t         int5ToInt16(uint8_t five);
     int16_t         int8ToInt16(uint8_t eight);
 
-    Sample          sample[4];    // Ring buffer, contains the words at T-3, T-2, T-1 and T
+    Sample          sample[SAMPLE_BUFFER_SIZE]; // Ring buffer, contains the words at T-3, T-2, T-1 and T
     uint8_t         previoustagcnt;
+    uint8_t         nextsampletagcnt;
     uint32_t        timestamp_counter;
 
     // For convenience and clarity
@@ -132,6 +151,8 @@ class LSM6DSOXFIFOClass {
     const uint8_t FIFO_DATA_OUT_Y_H = 4;
     const uint8_t FIFO_DATA_OUT_Z_L = 5;
     const uint8_t FIFO_DATA_OUT_Z_H = 6;
+
+    void displaySamples();
 };
 
 #endif
