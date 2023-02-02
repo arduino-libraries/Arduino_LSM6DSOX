@@ -42,6 +42,7 @@
 #define LSM6DSOX_EMB_FUNC_EN_B      0x05
 //#define LSM6DSOX_EMB_FUNC_PAGE_RW   0x17
 
+#define PREVIOUSTAGCNT_UNDEFINED    0xFF
 
 std::map< uint8_t, uint8_t > mapTimestampDecimation = { // DEC_TS_BATCH_[1:0]
   {  0, 0b00 }, 
@@ -54,6 +55,29 @@ std::map< uint8_t, uint8_t > mapTemperatureODR = { // ODR_T_BATCH_[1:0]
   {  2, 0b01 }, 
   { 13, 0b10 }, 
   { 52, 0b11 }
+};
+
+// For debugging purposes
+std::map< uint8_t, String > mapTagToStr = {
+  { 0x01, "G_NC" }, 
+  { 0x02, "XL_NC" }, 
+  { 0x03, "TEMP" }, 
+  { 0x04, "TIME" },
+  { 0x05, "CFG" }, 
+  { 0x06, "XL_NC_T_2" }, 
+  { 0x07, "XL_NC_T_1" }, 
+  { 0x08, "XL_2C" },
+  { 0x09, "XL_3C" }, 
+  { 0x0A, "G_NC_T_2" }, 
+  { 0x0B, "G_NC_T_1" }, 
+  { 0x0C, "G_2C" }, 
+  { 0x0D, "G_3C" },
+  { 0x0E, "SENS_HUB_0" }, 
+  { 0x0F, "SENS_HUB_1" }, 
+  { 0x10, "SENS_HUB_2" }, 
+  { 0x11, "SENS_HUB_3" },
+  { 0x12, "STEP_CNT" },
+  { 0x19, "SENS_HUB_NACK" }
 };
 
 LSM6DSOXFIFOClass::LSM6DSOXFIFOClass(LSM6DSOXClass* imu) {
@@ -93,8 +117,9 @@ void LSM6DSOXFIFOClass::begin()
   imu->readInternalFrequency(freq_fine);
   timestampCorrection = imu->correctTimestamp(1, freq_fine);
 
-  // Reset timestamp counter. Note that its lowest 2 bits will be filled by tag_cnt
-  timestamp_counter = 0;
+  // Reset timestamp counter. Note that its lowest 2 bits will be filled by tagcnt
+  // Set it to max to signal it should be reset using tagcnt
+  timestamp_counter = 4;
 
   // Find actual XL and G full scale values
   fullScaleXL = imu->accelerationFullScale();
@@ -136,7 +161,7 @@ void LSM6DSOXFIFOClass::begin()
   if(settings.counter_gyro) {
     counter_bdr_reg1 |= 0x20; //Use G count (rather than XL)
   }
-  uint8_t counter_bdr_reg2 = settings.counter_threshold  & 0xFF; // CNT_BDR_TH_0..7
+  uint8_t counter_bdr_reg2 = settings.counter_threshold & 0xFF; // CNT_BDR_TH_0..7
 
   imu->writeRegister(LSM6DSOX_FIFO_CTRL1, fifo_ctrl1);
   imu->writeRegister(LSM6DSOX_FIFO_CTRL2, fifo_ctrl2);
@@ -151,8 +176,12 @@ void LSM6DSOXFIFOClass::begin()
   buffer_empty = true;
 
   // Decoder
-  previoustagcnt = 4; // Normal values are 0/1/2/3
-  timestamp_counter = 0;
+  previoustagcnt = PREVIOUSTAGCNT_UNDEFINED; // To have it initialized at 1st tagcnt
+
+  // Initialize circular sample buffer
+  for(uint8_t idx = 0; idx < SAMPLE_BUFFER_SIZE; idx++) {
+    initializeSample(idx);
+  } 
 }
 
 void LSM6DSOXFIFOClass::end()
@@ -248,95 +277,208 @@ int LSM6DSOXFIFOClass::getRawWord(RawWord& word)
 
 int LSM6DSOXFIFOClass::getSample(Sample& sample)
 {
-  int result = -1;
-  while(result < 1) {
+  // First process words in the local buffer, return as soon as a sample
+  // can be released (lazy approach).
+  // If the local buffer runs empty, fill it from the fifo, then
+  // again decode words until a sample may be released.
+  while(true) {
     // Process all words available in the local buffer,
     // until a sample is produced or no more words are
     // available in the local buffer.
-    while((result < 1) && !buffer_empty) {
-      // Process word at read idx pointer
-      result = processWord(read_idx, sample);
-      // If an error occurred (result < 0), return it to the caller.
-      if(result < 0) {
-        return result;
+    while(!buffer_empty) {
+      // Inspect word at read idx pointer
+      switch(inspectWord(read_idx)) {
+        case WordStatus::OK:
+          // Nothing wrong, continue below
+          break;
+
+        case WordStatus::PARITY_ERROR: // Parity error -> communication problem?
+        default:
+          return -2; // TODO improve error handling
       }
 
-      // Update read idx pointer
-      if(++read_idx >= BUFFER_WORDS) read_idx -= BUFFER_WORDS;
-      buffer_empty = (read_idx == write_idx);
-    }
+      // Extract sample if available
+      bool sample_extracted = false;
+      switch(releaseSample(read_idx, sample)) {
+        case WordStatus::SAMPLE_EXTRACTED_DO_NOT_DECODE_WORD:
+          // sample_extracted = true;
+          // Simply return 1 sample, nothing more to do
+          return 1;
+
+        case WordStatus::SAMPLE_EXTRACTED_DO_DECODE_WORD:
+          sample_extracted = true;
+          /* FALLTHROUGH */
+        case WordStatus::SAMPLE_NOT_EXTRACTED_DO_DECODE_WORD:
+          switch(decodeWord(read_idx)) {
+            case WordStatus::OK:
+              updateReadPointer(); // Updates buffer_empty as well
+              break;
+
+            case WordStatus::TAG_NOT_IMPLEMENTED:
+            case WordStatus::UNKNOWN_TAG:
+              // Possible communication error
+              return -1; // TODO improve error handling
+
+            default: // should not happen
+              return -2; // TODO improve error handling
+          }
+          if(sample_extracted) {
+            // Finished: return 1 sample 
+            return 1;
+          }
+          // Continue below, we will have to process (or even read)
+          // more words before we can extract a sample
+          break;
+
+        case WordStatus::MISSING_TAGCNT_ERROR:
+          // Possible communication error
+          return -1; // TODO improve error handling
+    
+        case WordStatus::LOGIC_ERROR:
+        default:
+          return -2; // TODO improve error handling
+      }
+    } // END while(!buffer_empty)
 
     // If no sample was produced, read a fresh batch of
     // words from the IMU to the local buffer. Then resume
     // processing them, again until a sample is produced.
-    if(result < 1) {
-      uint16_t words_read = 0;
-      bool too_full = false;
-      // Read block of data. Note that too_full will always be false,
-      // since the buffer was emptied above.
-      int read_result = readData(words_read, too_full);
-      // If an error occurred (result < 0), return it to the caller.
-      if(read_result < 0) {
-        return read_result;
-      }
-      // If no words were read (so fifo is empty), return
-      // 0 as a result
-      if(words_read == 0) {
-        return 0;
-      }
+    uint16_t words_read = 0;
+    bool too_full = false;
+    // Read block of data. Note that too_full will always be false,
+    // since the buffer was emptied above.
+    int read_result = readData(words_read, too_full);
+    // If an error occurred (result < 0), return it to the caller.
+    if(read_result < 0) {
+      return read_result;
     }
+    // If no words were read (so fifo is empty, 'underrun'),
+    // return 0 as a result
+    if(words_read == 0) {
+      return 0;
+    }
+Serial.println("* "+String(words_read)+" words read from fifo");
   }
 
-  return result;
+  // A bit hacky. We should never arrive here...
+  return -1; // TODO improve error handling
 }
 
-int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
+void LSM6DSOXFIFOClass::updateReadPointer()
+{
+  if(++read_idx >= BUFFER_WORDS) read_idx -= BUFFER_WORDS;
+  buffer_empty = (read_idx == write_idx);
+}
+
+LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::inspectWord(uint16_t idx)
 {
   uint8_t *word = buffer_pointer(idx);
-
-  // Tag counters
-  uint8_t tagcnt = (word[FIFO_DATA_OUT_TAG] & 0x6) >> 1;  // T
-  uint8_t tagcnt_1 = (tagcnt-1) & 0x03;   // T-1
-  uint8_t tagcnt_2 = (tagcnt-2) & 0x03;   // T-2
-  uint8_t tagcnt_3 = (tagcnt-3) & 0x03;   // T-3
-
-  // Update timestamp counter ater wrap-around of tag counter
-  if((tagcnt == 0) && (previoustagcnt == 3)) {
-    timestamp_counter += 4;
-  }
-  timestamp_counter &= 0xFFFFFFFC;        // Reset lower 2 bits....
-  timestamp_counter |= (uint32_t)tagcnt;  //... and fill them with tagcnt
   
   // Perform parity check
   uint8_t parity = word[FIFO_DATA_OUT_TAG] ^ (word[FIFO_DATA_OUT_TAG] >> 4);
   parity ^= (parity >> 2);
   parity ^= (parity >> 1);
   if(parity & 0x01) {
-    return -2; // Parity error -> communication problem?
+    return WordStatus::PARITY_ERROR; // Parity error -> communication problem?
   }
 
-  // Upon each new tagcnt a sample is released
-  int result = 0; // So far, no samples extracted
-  if(previoustagcnt != tagcnt) {
+  return WordStatus::OK;
+}
+
+LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::releaseSample(uint16_t idx, Sample& extracted_sample)
+{
+  // Note: this function updates previoustagcnt, timestamp_counter and initializes a new sample
+  // in the circular sample buffer
+
+  // Retrieve word from word buffer
+  uint8_t *word = buffer_pointer(idx);
+
+  // Tag counter
+  uint8_t tagcnt = (word[FIFO_DATA_OUT_TAG] & 0x6) >> 1;  // T
+
+  // Previoustagcnt is undefined at fifo startup.
+  // In that case, initialize it with tagcnt
+  if(previoustagcnt == PREVIOUSTAGCNT_UNDEFINED) {
     previoustagcnt = tagcnt;
-
-    if(compressionEnabled) {
-      // Release sample at T-3 by copying it
-      extracted_sample = sample[tagcnt_3];
-    } else {
-      // Release sample at T-1 by copying it
-      extracted_sample = sample[tagcnt_1];
-    }
-    result = 1; // There is a valid sample available
-
-    // Initialize new sample at T
-    sample[tagcnt].counter = timestamp_counter;
-    sample[tagcnt].timestamp = NAN;
-    sample[tagcnt].temperature = NAN;
   }
+  uint8_t previoustagcnt_2 = (previoustagcnt-2) & 0x03;   // prev T-2
+Serial.print("releaseSample T:"+String(tagcnt));
+Serial.println(" PT:"+String(previoustagcnt));
 
-  // Decode word using its tag
+  // At each tagcnt update, a sample should be released.
+  // If compression is disabled, the previous sample is released.
+  // If compression is enabled, in principle the sample at T-3 is released,
+  // T being related to the current tagcnt. One or two tagcnts may be skipped,
+  // however - in that case, respectively 1 or 2 extra samples should be released
+  // before the new word is decoded.
+  if(tagcnt != previoustagcnt) {
+    uint8_t deltatagcnt = 
+      (previoustagcnt <= tagcnt) ? (tagcnt - previoustagcnt) : (4 - previoustagcnt + tagcnt);
+Serial.println(" DT:"+String(deltatagcnt));
+    switch(deltatagcnt) {
+      case 1:
+        // First update timestamp counter. This should happen each time tagcnt 
+        // has changed, but only once per changed tagcnt
+        timestamp_counter &= 0xFFFFFFFC; // clear lower 2 bits
+        if(tagcnt < previoustagcnt) { // Did tagcnt pass through 0?
+          timestamp_counter += 4;
+        }
+        timestamp_counter |= (uint32_t)tagcnt; // Fill lower 2 bits with tagcnt
+
+        // Release a sample
+        if(compressionEnabled) { // Enabled, so release sample at T-3
+          // Release sample at previoustagcnt-2 by copying it, then initializing it as
+          // a new slot
+          extracted_sample = sample[previoustagcnt_2];
+          initializeSample(previoustagcnt_2);
+        } else { // No compression -> release previous sample (at T-1)
+          // Release sample at previoustagcnt by copying it, then initializing it as
+          // a new slot
+          extracted_sample = sample[previoustagcnt];
+          initializeSample(previoustagcnt);
+        }
+
+        // Now reset previoustagcnt
+        previoustagcnt = tagcnt;
+        break;
+
+      case 2: // This means a single tagcnt value was skipped
+      case 3: // This means two tagcnt values were skipped
+        // Release sample at previoustagcnt-2 by copying it, then initializing it as
+        // a new slot
+        extracted_sample = sample[previoustagcnt_2];
+        initializeSample(previoustagcnt_2);
+
+        // This simulates a word inserted at the position of a skipped tagcnt
+        previoustagcnt = (previoustagcnt+1) & 0x03;
+        break;
+
+      default: // We really shouldn't be here (0 or >= 4)
+        return WordStatus::LOGIC_ERROR;
+    } // END switch(deltatagcnt)
+
+    return WordStatus::SAMPLE_EXTRACTED_DO_NOT_DECODE_WORD;
+  } // END if(tagcnt != previoustagcnt)
+
+  return WordStatus::SAMPLE_NOT_EXTRACTED_DO_DECODE_WORD;
+}
+
+LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
+{
+  // Note: this function updates fullScaleG, fullScaleXL and compressionEnabled,
+  // as well as the sample circular buffer
+
+  uint8_t *word = buffer_pointer(idx);
+
+  // Tag counters
+  uint8_t tagcnt = (word[FIFO_DATA_OUT_TAG] & 0x6) >> 1;  // T
+  uint8_t tagcnt_1 = (tagcnt-1) & 0x03; // T-1
+  uint8_t tagcnt_2 = (tagcnt-2) & 0x03; // T-2
+  uint8_t tagcnt_3 = (tagcnt-3) & 0x03; // T-3
+
+  // Decode tag
   uint8_t tag = word[FIFO_DATA_OUT_TAG] >> 3;
+Serial.println("Decoding "+String(timestamp_counter)+"("+String(tagcnt)+") TAG "+mapTagToStr[tag]+" ["+String(tag)+"]");
   switch(tag) {
     case 0x01: // Gyroscope NC Main Gyroscope uncompressed data 
     {
@@ -349,6 +491,7 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 
     case 0x02: // Accelerometer NC Main Accelerometer uncompressed data
     {
+      sample[tagcnt].counter = timestamp_counter;
       sample[tagcnt].XL_X = bytesToInt16(word[FIFO_DATA_OUT_X_L], word[FIFO_DATA_OUT_X_H]);
       sample[tagcnt].XL_Y = bytesToInt16(word[FIFO_DATA_OUT_Y_L], word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt].XL_Z = bytesToInt16(word[FIFO_DATA_OUT_Z_L], word[FIFO_DATA_OUT_Z_H]);
@@ -393,6 +536,7 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 
     case 0x06: // Accelerometer NC_T_2 Main Accelerometer uncompressed batched at two times the previous time slot
     {
+      sample[tagcnt_2].counter = timestamp_counter-2;
       sample[tagcnt_2].XL_X = bytesToInt16(word[FIFO_DATA_OUT_X_L], word[FIFO_DATA_OUT_X_H]);
       sample[tagcnt_2].XL_Y = bytesToInt16(word[FIFO_DATA_OUT_Y_L], word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt_2].XL_Z = bytesToInt16(word[FIFO_DATA_OUT_Z_L], word[FIFO_DATA_OUT_Z_H]);
@@ -402,6 +546,7 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 
     case 0x07: // Accelerometer NC_T_1 Main Accelerometer uncompressed data batched at the previous time slot
     {
+      sample[tagcnt_1].counter = timestamp_counter-1;
       sample[tagcnt_1].XL_X = bytesToInt16(word[FIFO_DATA_OUT_X_L], word[FIFO_DATA_OUT_X_H]);
       sample[tagcnt_1].XL_Y = bytesToInt16(word[FIFO_DATA_OUT_Y_L], word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt_1].XL_Z = bytesToInt16(word[FIFO_DATA_OUT_Z_L], word[FIFO_DATA_OUT_Z_H]);
@@ -411,6 +556,8 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 
     case 0x08: // Accelerometer 2xC Main Accelerometer 2x compressed data
     {
+      sample[tagcnt_2].counter = timestamp_counter-2;
+      sample[tagcnt_1].counter = timestamp_counter-1;
       sample[tagcnt_2].XL_X = sample[tagcnt_3].XL_X + int8ToInt16(word[FIFO_DATA_OUT_X_L]);
       sample[tagcnt_2].XL_Y = sample[tagcnt_3].XL_Y + int8ToInt16(word[FIFO_DATA_OUT_X_H]);
       sample[tagcnt_2].XL_Z = sample[tagcnt_3].XL_Z + int8ToInt16(word[FIFO_DATA_OUT_Y_L]);
@@ -424,6 +571,9 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 
     case 0x09: // Accelerometer 3xC Main Accelerometer 3x compressed data
     {
+      sample[tagcnt_2].counter = timestamp_counter-2;
+      sample[tagcnt_1].counter = timestamp_counter-1;
+      sample[tagcnt  ].counter = timestamp_counter;
       sample[tagcnt_2].XL_X = sample[tagcnt_3].XL_X + int5ToInt16(word[1] & 0x1F);
       sample[tagcnt_2].XL_Y = sample[tagcnt_3].XL_Y + int5ToInt16(((word[1] & 0xE0) >> 5) | (word[2] & 0x03));
       sample[tagcnt_2].XL_Z = sample[tagcnt_3].XL_Z + int5ToInt16((word[2] & 0x7C) >> 2);
@@ -441,7 +591,6 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 
     case 0x0A: // Gyroscope NC_T_2 Main Gyroscope uncompressed data batched at two times the previous time slot
     {
-      sample[tagcnt_2].counter = timestamp_counter-2;
       sample[tagcnt_2].G_X = bytesToInt16(word[FIFO_DATA_OUT_X_L], word[FIFO_DATA_OUT_X_H]);
       sample[tagcnt_2].G_Y = bytesToInt16(word[FIFO_DATA_OUT_Y_L], word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt_2].G_Z = bytesToInt16(word[FIFO_DATA_OUT_Z_L], word[FIFO_DATA_OUT_Z_H]);
@@ -451,7 +600,6 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
 
     case 0x0B: // Gyroscope NC_T_1 Main Gyroscope uncompressed data batched at the previous time slot
     {
-      sample[tagcnt_1].counter = timestamp_counter-1;
       sample[tagcnt_1].G_X = bytesToInt16(word[FIFO_DATA_OUT_X_L], word[FIFO_DATA_OUT_X_H]);
       sample[tagcnt_1].G_Y = bytesToInt16(word[FIFO_DATA_OUT_Y_L], word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt_1].G_Z = bytesToInt16(word[FIFO_DATA_OUT_Z_L], word[FIFO_DATA_OUT_Z_H]);
@@ -495,14 +643,22 @@ int LSM6DSOXFIFOClass::processWord(uint16_t idx, Sample& extracted_sample)
     case 0x11: // Sensor Hub Slave 3 Virtual Sensor hub data from slave 3
     case 0x12: // Step Counter Virtual Step counter data
     case 0x19: // Sensor Hub Nack Virtual Sensor hub nack from slave 0/1/2/
+      return WordStatus::TAG_NOT_IMPLEMENTED;
+
     default:
-    {
-      // Ignore these (and other) tags
-      break;
-    }
+      return WordStatus::UNKNOWN_TAG;
   }
 
-  return result;
+displaySamples();
+  return WordStatus::OK;
+}
+
+void LSM6DSOXFIFOClass::initializeSample(uint8_t idx)
+{
+  sample[idx].counter = 0; // TODO remove, unnecessary
+
+  sample[idx].timestamp = NAN;
+  sample[idx].temperature = NAN;
 }
 
 int16_t LSM6DSOXFIFOClass::bytesToInt16(uint8_t lo, uint8_t hi)
@@ -522,4 +678,15 @@ int16_t LSM6DSOXFIFOClass::int8ToInt16(uint8_t eight)
   return (eight & 0x80) ? 
     (int16_t)eight | 0xFF00 : //sign extension
     (int16_t)eight & 0x007F;
+}
+
+void LSM6DSOXFIFOClass::displaySamples()
+{
+  Serial.println("---");
+  for(uint8_t idx = 0; idx < SAMPLE_BUFFER_SIZE; idx++) {
+    Serial.print("["+String(idx)+"] cnt= " + String(sample[idx].counter) + " t="+String(sample[idx].timestamp)+" T="+String(sample[idx].temperature));
+    Serial.print(" G=("+String(sample[idx].G_X)+", " + String(sample[idx].G_Y) + ", "+String(sample[idx].G_Z) + ") {FS="+String(sample[idx].G_fullScale)+"}");
+    Serial.println(" XL=("+String(sample[idx].XL_X)+", " + String(sample[idx].XL_Y) + ", "+String(sample[idx].XL_Z) + ") {FS="+String(sample[idx].XL_fullScale)+"}");
+  }
+  Serial.println("---");
 }
