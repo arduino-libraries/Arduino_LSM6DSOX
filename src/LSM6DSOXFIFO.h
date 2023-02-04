@@ -121,7 +121,6 @@ class LSM6DSOXFIFOClass {
       TAG_NOT_IMPLEMENTED,
       UNKNOWN_TAG,
       SAMPLE_EXTRACTED_DO_NOT_DECODE_WORD,
-      SAMPLE_EXTRACTED_DO_DECODE_WORD,
       SAMPLE_NOT_EXTRACTED_DO_DECODE_WORD,
       MISSING_TAGCNT_ERROR,
       PARITY_ERROR,
@@ -133,7 +132,7 @@ class LSM6DSOXFIFOClass {
 
     uint8_t*        buffer_pointer(uint16_t idx) { return &buffer[idx * BUFFER_BYTES_PER_WORD]; }
     void            initializeSample(uint8_t idx);
-  
+    void            extractSample(uint8_t cnt, Sample& extracted_sample);
     int16_t         bytesToInt16(uint8_t lo, uint8_t hi);
     int16_t         int5ToInt16(uint8_t five);
     int16_t         int8ToInt16(uint8_t eight);
@@ -152,7 +151,9 @@ class LSM6DSOXFIFOClass {
     const uint8_t FIFO_DATA_OUT_Z_L = 5;
     const uint8_t FIFO_DATA_OUT_Z_H = 6;
 
+    /* For debugging purposes
     void displaySamples();
+    */
 };
 
 #endif
