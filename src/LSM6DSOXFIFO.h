@@ -93,7 +93,7 @@ class LSM6DSOXFIFOClass {
 
     // Fetch data from IMU
     int readStatus(FIFOStatus& status);
-    int readData(uint16_t& words_read, bool& too_full);
+    int readData(uint16_t& words_read, bool& too_full, FIFOStatus& status);
 
     // Retrieve fetched data from local buffer
     int getRawWord(RawWord& word);

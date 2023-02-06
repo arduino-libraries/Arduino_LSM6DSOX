@@ -220,12 +220,11 @@ int LSM6DSOXFIFOClass::readStatus(FIFOStatus& status)
 
 // Read as much data as possible in one multiple byte/word read from sensor fifo
 // to our own buffer
-int LSM6DSOXFIFOClass::readData(uint16_t& words_read, bool& too_full)
+int LSM6DSOXFIFOClass::readData(uint16_t& words_read, bool& too_full, FIFOStatus& status)
 {
   words_read = 0;
   too_full = false;
 
-  FIFOStatus status;
   int result = readStatus(status);
   if(result == 1) {
     // The I2C/SPI multibyte read requires contiguous memory. Therefore fifo reading 
@@ -267,8 +266,7 @@ int LSM6DSOXFIFOClass::getRawWord(RawWord& word)
   uint16_t unread = unread_words();
   if(unread > 0) {
     memcpy((void*)&word, (const void*)buffer_pointer(read_idx), size_t(BUFFER_BYTES_PER_WORD));
-    if(++read_idx >= BUFFER_WORDS) read_idx -= BUFFER_WORDS;
-    buffer_empty = (read_idx == write_idx);
+    updateReadPointer();
     result = 1;
   }
 
@@ -312,11 +310,9 @@ int LSM6DSOXFIFOClass::getSample(Sample& sample)
 
         case WordStatus::TAG_NOT_IMPLEMENTED:
         case WordStatus::UNKNOWN_TAG:
+        default:
           // Possible communication error
           return -1; // TODO improve error handling
-
-        default: // should not happen
-          return -2; // TODO improve error handling
       }
     } // END while(!buffer_empty)
 
@@ -326,10 +322,15 @@ int LSM6DSOXFIFOClass::getSample(Sample& sample)
     bool too_full = false;
     // Read block of data. Note that too_full will always be false,
     // since the buffer was emptied above.
-    int read_result = readData(words_read, too_full);
+    FIFOStatus status;
+    int read_result = readData(words_read, too_full, status);
     // If an error occurred (result < 0), return it to the caller.
-    if(read_result < 0) {
+    if(read_result <= 0) {
       return read_result;
+    }
+    // Buffer overrun qualifies as an error too
+    if(status.FIFO_OVR_LATCHED) {
+      return -2;
     }
   } while (words_read > 0);
 
