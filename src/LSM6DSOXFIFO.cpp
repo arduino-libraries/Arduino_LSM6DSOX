@@ -281,7 +281,8 @@ int LSM6DSOXFIFOClass::getSample(Sample& sample)
   // can be released (lazy approach).
   // If the local buffer runs empty, fill it from the fifo, then
   // again decode words until a sample may be released.
-  while(true) {
+  uint16_t words_read = 0;
+  do {
     // Process all words available in the local buffer,
     // until a sample is produced or no more words are
     // available in the local buffer.
@@ -298,41 +299,23 @@ int LSM6DSOXFIFOClass::getSample(Sample& sample)
       }
 
       // Extract sample if available
-      bool sample_extracted = false;
-      switch(releaseSample(read_idx, sample)) {
-        case WordStatus::SAMPLE_EXTRACTED_DO_NOT_DECODE_WORD:
-          // sample_extracted = true;
-          // Simply return 1 sample, nothing more to do
-          return 1;
-
-        case WordStatus::SAMPLE_NOT_EXTRACTED_DO_DECODE_WORD:
-          switch(decodeWord(read_idx)) {
-            case WordStatus::OK:
-              updateReadPointer(); // Updates buffer_empty as well
-              break;
-
-            case WordStatus::TAG_NOT_IMPLEMENTED:
-            case WordStatus::UNKNOWN_TAG:
-              // Possible communication error
-              return -1; // TODO improve error handling
-
-            default: // should not happen
-              return -2; // TODO improve error handling
-          }
-          if(sample_extracted) {
-            // Finished: return 1 sample 
-            return 1;
-          }
-          // Continue below, we will have to process (or even read)
-          // more words before we can extract a sample
+      int samples_released = releaseSample(read_idx, sample);
+      if(samples_released > 0) {
+        // Simply return sample, nothing more to do here
+        return samples_released;
+      }
+      
+      switch(decodeWord(read_idx)) {
+        case WordStatus::OK:
+          updateReadPointer(); // Updates buffer_empty as well
           break;
 
-        case WordStatus::MISSING_TAGCNT_ERROR:
+        case WordStatus::TAG_NOT_IMPLEMENTED:
+        case WordStatus::UNKNOWN_TAG:
           // Possible communication error
           return -1; // TODO improve error handling
-    
-        case WordStatus::LOGIC_ERROR:
-        default:
+
+        default: // should not happen
           return -2; // TODO improve error handling
       }
     } // END while(!buffer_empty)
@@ -340,7 +323,6 @@ int LSM6DSOXFIFOClass::getSample(Sample& sample)
     // If no sample was produced, read a fresh batch of
     // words from the IMU to the local buffer. Then resume
     // processing them, again until a sample is produced.
-    uint16_t words_read = 0;
     bool too_full = false;
     // Read block of data. Note that too_full will always be false,
     // since the buffer was emptied above.
@@ -349,15 +331,11 @@ int LSM6DSOXFIFOClass::getSample(Sample& sample)
     if(read_result < 0) {
       return read_result;
     }
-    // If no words were read (so fifo is empty, 'underrun'),
-    // return 0 as a result
-    if(words_read == 0) {
-      return 0;
-    }
-  }
+  } while (words_read > 0);
 
-  // A bit hacky. We should never arrive here...
-  return -1; // TODO improve error handling
+  // If no words were read (so fifo is empty, 'underrun'),
+  // return 0 (# samples released) as a result
+  return 0;
 }
 
 void LSM6DSOXFIFOClass::updateReadPointer()
@@ -381,7 +359,7 @@ LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::inspectWord(uint16_t idx)
   return WordStatus::OK;
 }
 
-LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::releaseSample(uint16_t idx, Sample& extracted_sample)
+int LSM6DSOXFIFOClass::releaseSample(uint16_t idx, Sample& extracted_sample)
 {
   // Note: this function updates previoustagcnt, timestamp_counter and initializes a new sample
   // in the circular sample buffer
@@ -434,10 +412,10 @@ LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::releaseSample(uint16_t idx, Sam
     // Advance previoustagcnt one position
     previoustagcnt = (previoustagcnt+1) & 0x03;
 
-    return WordStatus::SAMPLE_EXTRACTED_DO_NOT_DECODE_WORD;
+    return 1; // Sample released
   }
 
-  return WordStatus::SAMPLE_NOT_EXTRACTED_DO_DECODE_WORD;
+  return 0; // No sample released, keep decoding
 }
 
 LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
@@ -477,7 +455,7 @@ LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
     case 0x03: // Temperature Auxiliary Temperature data
     {
       sample[tagcnt].temperature = 
-        imu->temperatureToCelsius(bytesToInt16(word[FIFO_DATA_OUT_Z_L], word[FIFO_DATA_OUT_Z_H]));
+        imu->temperatureToCelsius(bytesToInt16(word[FIFO_DATA_OUT_X_L], word[FIFO_DATA_OUT_X_H]));
       break;
     }
 
@@ -617,7 +595,7 @@ LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
     case 0x10: // Sensor Hub Slave 2 Virtual Sensor hub data from slave 2
     case 0x11: // Sensor Hub Slave 3 Virtual Sensor hub data from slave 3
     case 0x12: // Step Counter Virtual Step counter data
-    case 0x19: // Sensor Hub Nack Virtual Sensor hub nack from slave 0/1/2/
+    case 0x19: // Sensor Hub Nack Virtual Sensor hub nack from slave 0/1/2/3
       return WordStatus::TAG_NOT_IMPLEMENTED;
 
     default:
@@ -629,8 +607,6 @@ LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
 
 void LSM6DSOXFIFOClass::initializeSample(uint8_t idx)
 {
-  sample[idx].counter = 0; // TODO remove, unnecessary
-
   sample[idx].timestamp = NAN;
   sample[idx].temperature = NAN;
 }

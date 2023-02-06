@@ -120,14 +120,12 @@ class LSM6DSOXFIFOClass {
       OK,
       TAG_NOT_IMPLEMENTED,
       UNKNOWN_TAG,
-      SAMPLE_EXTRACTED_DO_NOT_DECODE_WORD,
-      SAMPLE_NOT_EXTRACTED_DO_DECODE_WORD,
       MISSING_TAGCNT_ERROR,
       PARITY_ERROR,
       LOGIC_ERROR
     };
     WordStatus      inspectWord(uint16_t idx);
-    WordStatus      releaseSample(uint16_t idx, Sample& extracted_sample);
+    int             releaseSample(uint16_t idx, Sample& extracted_sample);
     WordStatus      decodeWord(uint16_t idx);
 
     uint8_t*        buffer_pointer(uint16_t idx) { return &buffer[idx * BUFFER_BYTES_PER_WORD]; }
