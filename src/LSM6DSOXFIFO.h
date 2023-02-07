@@ -27,6 +27,17 @@
 #define BUFFER_BYTES_PER_WORD 7         // Tag + 3 * (2 byte word)
 #define SAMPLE_BUFFER_SIZE    4         // 4 possible TAGCNT values (0-3)
 
+
+enum class SampleStatus { 
+  OK,
+  BUFFER_UNDERRUN,
+  BUFFER_OVERRUN,
+  TAG_NOT_IMPLEMENTED,
+  UNKNOWN_TAG,
+  PARITY_ERROR,
+  COMMUNICATION_ERROR
+};
+
 struct FIFOSettings {
 public:
   uint16_t watermark_level;           //9 bits (0-511)
@@ -91,13 +102,13 @@ class LSM6DSOXFIFOClass {
     void begin();
     void end();
 
-    // Fetch data from IMU
-    int readStatus(FIFOStatus& status);
-    int readData(uint16_t& words_read, bool& too_full, FIFOStatus& status);
+    // Fetch data from IMU fifo
+    int             readStatus(FIFOStatus& status);
+    int             readData(uint16_t& words_read, bool& too_full, FIFOStatus& status);
 
     // Retrieve fetched data from local buffer
-    int getRawWord(RawWord& word);
-    int getSample(Sample& sample);
+    SampleStatus    getRawWord(RawWord& word);
+    SampleStatus    getSample(Sample& sample);
 
     uint8_t         buffer[BUFFER_WORDS * BUFFER_BYTES_PER_WORD];
     uint16_t        read_idx;
@@ -112,21 +123,11 @@ class LSM6DSOXFIFOClass {
   private:
     LSM6DSOXClass*  imu;
     
-
     void            updateReadPointer();
     uint16_t        unread_words();
-
-    enum class WordStatus { 
-      OK,
-      TAG_NOT_IMPLEMENTED,
-      UNKNOWN_TAG,
-      MISSING_TAGCNT_ERROR,
-      PARITY_ERROR,
-      LOGIC_ERROR
-    };
-    WordStatus      inspectWord(uint16_t idx);
+    SampleStatus    inspectWord(uint16_t idx);
     int             releaseSample(uint16_t idx, Sample& extracted_sample);
-    WordStatus      decodeWord(uint16_t idx);
+    SampleStatus    decodeWord(uint16_t idx);
 
     uint8_t*        buffer_pointer(uint16_t idx) { return &buffer[idx * BUFFER_BYTES_PER_WORD]; }
     void            initializeSample(uint8_t idx);

@@ -259,21 +259,21 @@ int LSM6DSOXFIFOClass::readData(uint16_t& words_read, bool& too_full, FIFOStatus
   return result;
 }
 
-int LSM6DSOXFIFOClass::getRawWord(RawWord& word)
+SampleStatus LSM6DSOXFIFOClass::getRawWord(RawWord& word)
 {
-  int result = -1;
+  SampleStatus result = SampleStatus::BUFFER_UNDERRUN;
 
   uint16_t unread = unread_words();
   if(unread > 0) {
     memcpy((void*)&word, (const void*)buffer_pointer(read_idx), size_t(BUFFER_BYTES_PER_WORD));
     updateReadPointer();
-    result = 1;
+    result = SampleStatus::OK;
   }
 
   return result;
 }
 
-int LSM6DSOXFIFOClass::getSample(Sample& sample)
+SampleStatus LSM6DSOXFIFOClass::getSample(Sample& sample)
 {
   // First process words in the local buffer, return as soon as a sample
   // can be released (lazy approach).
@@ -286,33 +286,34 @@ int LSM6DSOXFIFOClass::getSample(Sample& sample)
     // available in the local buffer.
     while(!buffer_empty) {
       // Inspect word at read idx pointer
-      switch(inspectWord(read_idx)) {
-        case WordStatus::OK:
+      SampleStatus inspectStatus = inspectWord(read_idx);
+      switch(inspectStatus) {
+        case SampleStatus::OK:
           // Nothing wrong, continue below
           break;
 
-        case WordStatus::PARITY_ERROR: // Parity error -> communication problem?
+        case SampleStatus::PARITY_ERROR: // Parity error -> communication problem?
         default:
-          return -2; // TODO improve error handling
+          return inspectStatus;
       }
 
       // Extract sample if available
       int samples_released = releaseSample(read_idx, sample);
       if(samples_released > 0) {
-        // Simply return sample, nothing more to do here
-        return samples_released;
+        // Ready: sample released, no errors
+        return SampleStatus::OK;
       }
       
-      switch(decodeWord(read_idx)) {
-        case WordStatus::OK:
+      SampleStatus decodeStatus = decodeWord(read_idx);
+      switch(decodeStatus) {
+        case SampleStatus::OK:
           updateReadPointer(); // Updates buffer_empty as well
           break;
 
-        case WordStatus::TAG_NOT_IMPLEMENTED:
-        case WordStatus::UNKNOWN_TAG:
+        case SampleStatus::TAG_NOT_IMPLEMENTED:
+        case SampleStatus::UNKNOWN_TAG:
         default:
-          // Possible communication error
-          return -1; // TODO improve error handling
+          return decodeStatus;
       }
     } // END while(!buffer_empty)
 
@@ -324,19 +325,18 @@ int LSM6DSOXFIFOClass::getSample(Sample& sample)
     // since the buffer was emptied above.
     FIFOStatus status;
     int read_result = readData(words_read, too_full, status);
-    // If an error occurred (result < 0), return it to the caller.
+    // If an error occurred (result <= 0), report communication error
     if(read_result <= 0) {
-      return read_result;
+      return SampleStatus::COMMUNICATION_ERROR;
     }
     // Buffer overrun qualifies as an error too
     if(status.FIFO_OVR_LATCHED) {
-      return -2;
+      return SampleStatus::BUFFER_OVERRUN;
     }
   } while (words_read > 0);
 
-  // If no words were read (so fifo is empty, 'underrun'),
-  // return 0 (# samples released) as a result
-  return 0;
+  // No words were read (so fifo is empty, 'underrun')
+  return SampleStatus::BUFFER_UNDERRUN;
 }
 
 void LSM6DSOXFIFOClass::updateReadPointer()
@@ -345,7 +345,7 @@ void LSM6DSOXFIFOClass::updateReadPointer()
   buffer_empty = (read_idx == write_idx);
 }
 
-LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::inspectWord(uint16_t idx)
+SampleStatus LSM6DSOXFIFOClass::inspectWord(uint16_t idx)
 {
   uint8_t *word = buffer_pointer(idx);
   
@@ -354,10 +354,10 @@ LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::inspectWord(uint16_t idx)
   parity ^= (parity >> 2);
   parity ^= (parity >> 1);
   if(parity & 0x01) {
-    return WordStatus::PARITY_ERROR; // Parity error -> communication problem?
+    return SampleStatus::PARITY_ERROR; // Parity error -> communication problem?
   }
 
-  return WordStatus::OK;
+  return SampleStatus::OK;
 }
 
 int LSM6DSOXFIFOClass::releaseSample(uint16_t idx, Sample& extracted_sample)
@@ -419,7 +419,7 @@ int LSM6DSOXFIFOClass::releaseSample(uint16_t idx, Sample& extracted_sample)
   return 0; // No sample released, keep decoding
 }
 
-LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
+SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
 {
   // Note: this function updates fullScaleG, fullScaleXL and compressionEnabled,
   // as well as the sample circular buffer
@@ -597,13 +597,13 @@ LSM6DSOXFIFOClass::WordStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
     case 0x11: // Sensor Hub Slave 3 Virtual Sensor hub data from slave 3
     case 0x12: // Step Counter Virtual Step counter data
     case 0x19: // Sensor Hub Nack Virtual Sensor hub nack from slave 0/1/2/3
-      return WordStatus::TAG_NOT_IMPLEMENTED;
+      return SampleStatus::TAG_NOT_IMPLEMENTED;
 
     default:
-      return WordStatus::UNKNOWN_TAG;
+      return SampleStatus::UNKNOWN_TAG;
   }
 
-  return WordStatus::OK;
+  return SampleStatus::OK;
 }
 
 void LSM6DSOXFIFOClass::initializeSample(uint8_t idx)
