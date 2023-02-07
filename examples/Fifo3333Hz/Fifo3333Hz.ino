@@ -42,11 +42,10 @@ void setup() {
   // Wait until samples are being produced
   Sample sample;
   SampleStatus sampleResult;
-  while((sampleResult = IMU.fifo.getSample(sample)) == SampleStatus::BUFFER_UNDERRUN) {
-    if(sampleResult != SampleStatus::OK) {
-      Serial.println("Error reading from IMU!");
-      while (1);
-    }
+  while((sampleResult = IMU.fifo.getSample(sample)) == SampleStatus::BUFFER_UNDERRUN);
+  if(sampleResult != SampleStatus::OK) {
+    Serial.println("Error reading from IMU!");
+    while (1);
   }
 
   counter = 0;
