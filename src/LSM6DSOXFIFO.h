@@ -116,8 +116,6 @@ class LSM6DSOXFIFOClass {
     bool            buffer_empty;
 
     double          timestampCorrection;
-    uint8_t         fullScaleXL;
-    uint16_t        fullScaleG;
     bool            compressionEnabled;
 
   private:

@@ -121,10 +121,6 @@ void LSM6DSOXFIFOClass::begin()
   // Set it to max to signal it should be reset using tagcnt
   timestamp_counter = 4;
 
-  // Find actual XL and G full scale values
-  fullScaleXL = imu->accelerationFullScale();
-  fullScaleG = imu->gyroscopeFullScale();
-
   // Enable or disable compression. See also below (FIFO_CTRL2)
   uint8_t emb_func_en_b = settings.compression ? 0x08 : 0x00;
   imu->writeRegister(LSM6DSOX_FUNC_CFG_ACCESS, 0x80); // Enable embedded function registers access
@@ -434,12 +430,12 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
   // Decode tag
   uint8_t tag = word[FIFO_DATA_OUT_TAG] >> 3;
   switch(tag) {
-    case 0x01: // Gyroscope NC Main Gyroscope uncompressed data 
+    case 0x01: // Gyroscope NC Main Gyroscope uncompressed data
     {
       sample[tagcnt].G_X = bytesToInt16(word[FIFO_DATA_OUT_X_L], word[FIFO_DATA_OUT_X_H]);
       sample[tagcnt].G_Y = bytesToInt16(word[FIFO_DATA_OUT_Y_L], word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt].G_Z = bytesToInt16(word[FIFO_DATA_OUT_Z_L], word[FIFO_DATA_OUT_Z_H]);
-      sample[tagcnt].G_fullScale = fullScaleG;
+      sample[tagcnt].G_fullScale = imu->fullScaleG;
       break;
     }
 
@@ -449,7 +445,7 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
       sample[tagcnt].XL_X = bytesToInt16(word[FIFO_DATA_OUT_X_L], word[FIFO_DATA_OUT_X_H]);
       sample[tagcnt].XL_Y = bytesToInt16(word[FIFO_DATA_OUT_Y_L], word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt].XL_Z = bytesToInt16(word[FIFO_DATA_OUT_Z_L], word[FIFO_DATA_OUT_Z_H]);
-      sample[tagcnt].XL_fullScale = fullScaleXL;
+      sample[tagcnt].XL_fullScale = imu->fullScaleXL;
       break;
     }
 
@@ -475,13 +471,13 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
     {
       // Gyro full range
       uint8_t fs_g = word[FIFO_DATA_OUT_X_H] >> 5; // FS1_G FS0_G FS_125
-      fullScaleG = imu->fs_g_to_range(fs_g);
-      sample[tagcnt].G_fullScale = fullScaleG;
+      imu->fullScaleG = imu->fs_g_to_range(fs_g);
+      sample[tagcnt].G_fullScale = imu->fullScaleG;
 
       // Accelerometer full range
       uint8_t fs_xl = word[FIFO_DATA_OUT_Y_L] >> 6; // FS1_XL FS0_XL
-      fullScaleXL = imu->fs_xl_to_range(fs_xl);
-      sample[tagcnt].XL_fullScale = fullScaleXL;
+      imu->fullScaleXL = imu->fs_xl_to_range(fs_xl);
+      sample[tagcnt].XL_fullScale = imu->fullScaleXL;
 
       // Compression
       compressionEnabled = (word[FIFO_DATA_OUT_Y_H] & 0x80) == 0x80;
@@ -494,7 +490,7 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
       sample[tagcnt_2].XL_X = bytesToInt16(word[FIFO_DATA_OUT_X_L], word[FIFO_DATA_OUT_X_H]);
       sample[tagcnt_2].XL_Y = bytesToInt16(word[FIFO_DATA_OUT_Y_L], word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt_2].XL_Z = bytesToInt16(word[FIFO_DATA_OUT_Z_L], word[FIFO_DATA_OUT_Z_H]);
-      sample[tagcnt_2].XL_fullScale = fullScaleXL;
+      sample[tagcnt_2].XL_fullScale = imu->fullScaleXL;
       break;
     }
 
@@ -504,7 +500,7 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
       sample[tagcnt_1].XL_X = bytesToInt16(word[FIFO_DATA_OUT_X_L], word[FIFO_DATA_OUT_X_H]);
       sample[tagcnt_1].XL_Y = bytesToInt16(word[FIFO_DATA_OUT_Y_L], word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt_1].XL_Z = bytesToInt16(word[FIFO_DATA_OUT_Z_L], word[FIFO_DATA_OUT_Z_H]);
-      sample[tagcnt_1].XL_fullScale = fullScaleXL;
+      sample[tagcnt_1].XL_fullScale = imu->fullScaleXL;
       break;
     }
 
@@ -518,8 +514,8 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
       sample[tagcnt_1].XL_X = sample[tagcnt_2].XL_X + int8ToInt16(word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt_1].XL_Y = sample[tagcnt_2].XL_Y + int8ToInt16(word[FIFO_DATA_OUT_Z_L]);
       sample[tagcnt_1].XL_Z = sample[tagcnt_2].XL_Z + int8ToInt16(word[FIFO_DATA_OUT_Z_H]);
-      sample[tagcnt_2].XL_fullScale = fullScaleXL;
-      sample[tagcnt_1].XL_fullScale = fullScaleXL;
+      sample[tagcnt_2].XL_fullScale = imu->fullScaleXL;
+      sample[tagcnt_1].XL_fullScale = imu->fullScaleXL;
       break;
     }
 
@@ -537,9 +533,9 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
       sample[tagcnt].XL_X = sample[tagcnt_1].XL_X + int5ToInt16(word[5] & 0x1F);
       sample[tagcnt].XL_Y = sample[tagcnt_1].XL_Y + int5ToInt16(((word[5] & 0xE0) >> 5) | (word[6] & 0x03));
       sample[tagcnt].XL_Z = sample[tagcnt_1].XL_Z + int5ToInt16((word[6] & 0x7C) >> 2);
-      sample[tagcnt_2].XL_fullScale = fullScaleXL;
-      sample[tagcnt_1].XL_fullScale = fullScaleXL;
-      sample[tagcnt].XL_fullScale = fullScaleXL;
+      sample[tagcnt_2].XL_fullScale = imu->fullScaleXL;
+      sample[tagcnt_1].XL_fullScale = imu->fullScaleXL;
+      sample[tagcnt].XL_fullScale = imu->fullScaleXL;
       break;
     }
 
@@ -548,8 +544,8 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
       sample[tagcnt_2].G_X = bytesToInt16(word[FIFO_DATA_OUT_X_L], word[FIFO_DATA_OUT_X_H]);
       sample[tagcnt_2].G_Y = bytesToInt16(word[FIFO_DATA_OUT_Y_L], word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt_2].G_Z = bytesToInt16(word[FIFO_DATA_OUT_Z_L], word[FIFO_DATA_OUT_Z_H]);
-      sample[tagcnt_2].G_fullScale = fullScaleG;
-      break;
+      sample[tagcnt_2].G_fullScale = imu->fullScaleG;
+      break;    
     }
 
     case 0x0B: // Gyroscope NC_T_1 Main Gyroscope uncompressed data batched at the previous time slot
@@ -557,7 +553,7 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
       sample[tagcnt_1].G_X = bytesToInt16(word[FIFO_DATA_OUT_X_L], word[FIFO_DATA_OUT_X_H]);
       sample[tagcnt_1].G_Y = bytesToInt16(word[FIFO_DATA_OUT_Y_L], word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt_1].G_Z = bytesToInt16(word[FIFO_DATA_OUT_Z_L], word[FIFO_DATA_OUT_Z_H]);
-      sample[tagcnt_1].G_fullScale = fullScaleG;
+      sample[tagcnt_1].G_fullScale = imu->fullScaleG;
       break;
     }
 
@@ -569,8 +565,8 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
       sample[tagcnt_1].G_X = sample[tagcnt_2].G_X + int8ToInt16(word[FIFO_DATA_OUT_Y_H]);
       sample[tagcnt_1].G_Y = sample[tagcnt_2].G_Y + int8ToInt16(word[FIFO_DATA_OUT_Z_L]);
       sample[tagcnt_1].G_Z = sample[tagcnt_2].G_Z + int8ToInt16(word[FIFO_DATA_OUT_Z_H]);
-      sample[tagcnt_2].G_fullScale = fullScaleG;
-      sample[tagcnt_1].G_fullScale = fullScaleG;
+      sample[tagcnt_2].G_fullScale = imu->fullScaleG;
+      sample[tagcnt_1].G_fullScale = imu->fullScaleG;
       break;
     }
 
@@ -585,10 +581,10 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
       sample[tagcnt].G_X = sample[tagcnt_1].G_X + int5ToInt16(word[FIFO_DATA_OUT_Z_L] & 0x1F);
       sample[tagcnt].G_Y = sample[tagcnt_1].G_Y + int5ToInt16(((word[FIFO_DATA_OUT_Z_L] & 0xE0) >> 5) | ((word[FIFO_DATA_OUT_Z_H] & 0x03) << 3));
       sample[tagcnt].G_Z = sample[tagcnt_1].G_Z + int5ToInt16((word[FIFO_DATA_OUT_Z_H] & 0x7C) >> 2);
-      sample[tagcnt_2].G_fullScale = fullScaleG;
-      sample[tagcnt_1].G_fullScale = fullScaleG;
-      sample[tagcnt].G_fullScale = fullScaleG;
-     break;
+      sample[tagcnt_2].G_fullScale = imu->fullScaleG;
+      sample[tagcnt_1].G_fullScale = imu->fullScaleG;
+      sample[tagcnt].G_fullScale = imu->fullScaleG;
+      break;
     }
 
     case 0x0E: // Sensor Hub Slave 0 Virtual Sensor hub data from slave 0

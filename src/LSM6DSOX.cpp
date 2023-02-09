@@ -200,6 +200,10 @@ int LSM6DSOXClass::begin()
   // Enable timestamp counter
   writeRegister(LSM6DSOX_CTRL10_C, 0x20);
 
+  // Find actual XL and G full scale values
+  fullScaleXL = accelerationFullScale();
+  fullScaleG = gyroscopeFullScale();
+
   return 1;
 }
 
@@ -251,9 +255,10 @@ int LSM6DSOXClass::readAcceleration(float& x, float& y, float& z)
     return 0;
   }
 
-  x = data[0] * (settings.accelRange / 32768.0);
-  y = data[1] * (settings.accelRange / 32768.0);
-  z = data[2] * (settings.accelRange / 32768.0);
+  float scalefactor = fullScaleXL / 32768.0;
+  x = data[0] * scalefactor;
+  y = data[1] * scalefactor;
+  z = data[2] * scalefactor;
 
   return 1;
 }
@@ -308,7 +313,11 @@ int LSM6DSOXClass::setAccelerationFullScale(uint8_t range) // 2/4/8/16
 
   // Modify FS0_XL and FS1_XL
   int ctrl1_xl = readRegister(LSM6DSOX_CTRL1_XL) & 0xF3;
-  return writeRegister(LSM6DSOX_CTRL1_XL, ((uint8_t)ctrl1_xl) | (fs_xl << 2));
+  int write_result = writeRegister(LSM6DSOX_CTRL1_XL, ((uint8_t)ctrl1_xl) | (fs_xl << 2));
+  if(write_result == 1) {
+    fullScaleXL = accelerationFullScale();
+  }
+  return write_result;
 }
 
 int LSM6DSOXClass::readGyroscope(float& x, float& y, float& z)
@@ -323,9 +332,10 @@ int LSM6DSOXClass::readGyroscope(float& x, float& y, float& z)
     return 0;
   }
 
-  x = data[0] * (settings.gyroRange / 32768.0);
-  y = data[1] * (settings.gyroRange / 32768.0);
-  z = data[2] * (settings.gyroRange / 32768.0);
+  float scalefactor = fullScaleG / 32768.0;
+  x = data[0] * scalefactor;
+  y = data[1] * scalefactor;
+  z = data[2] * scalefactor;
 
   return 1;
 }
@@ -378,7 +388,11 @@ int LSM6DSOXClass::setGyroscopeFullScale(uint8_t range) // 125/250/500/1000/2000
 
   // Modify FS_0_G, FS_1_G and FS_125
   int ctrl2_g = readRegister(LSM6DSOX_CTRL2_G) & 0xF1;
-  return writeRegister(LSM6DSOX_CTRL2_G, ((uint8_t)ctrl2_g) | (fs_g << 1));
+  int write_result = writeRegister(LSM6DSOX_CTRL2_G, ((uint8_t)ctrl2_g) | (fs_g << 1));
+  if(write_result == 1) {
+    fullScaleG = gyroscopeFullScale();
+  }
+  return write_result;
 }
 
 int LSM6DSOXClass::readTemperature(int& temperature_deg)

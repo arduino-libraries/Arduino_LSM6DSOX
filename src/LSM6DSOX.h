@@ -107,6 +107,9 @@ private:
     bool _use400kHz;
 
     SPISettings _spiSettings;
+
+    uint8_t   fullScaleXL;
+    uint16_t  fullScaleG;
 };
 
 extern LSM6DSOXClass IMU_LSM6DSOX;
