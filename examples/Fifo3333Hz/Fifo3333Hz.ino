@@ -24,6 +24,7 @@ int underrun;
 void setup() {
   Serial.begin(115200);
   while (!Serial);
+  Serial.println("Starting device...");
 
   IMU.settings.sampleRate = 3333;
   if (!IMU.begin()) {
@@ -58,13 +59,18 @@ void loop() {
   SampleStatus sampleResult = IMU.fifo.getSample(sample);
   bool errorOccurred = false;
   switch(sampleResult) {
+    // Good results
     case SampleStatus::OK:
+      // Sample retrieved
       counter++;
       break;
     case SampleStatus::BUFFER_UNDERRUN:
+      // No sample available: we're too fast, need to wait
       underrun++;
       delay(1);
       break;
+
+    // Bad results
     case SampleStatus::COMMUNICATION_ERROR:
       Serial.print("Communication error");
       errorOccurred = true;
@@ -82,6 +88,7 @@ void loop() {
       errorOccurred = true;
       break;
     case SampleStatus::BUFFER_OVERRUN:
+      // We're too slow
       Serial.print("Buffer overrun error");
       errorOccurred = true;
       break;
