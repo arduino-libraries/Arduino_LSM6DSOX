@@ -530,11 +530,12 @@ int LSM6DSOXClass::readRegisters(uint8_t address, uint8_t* data, size_t length)
     _wire->beginTransmission(_slaveAddress);
     _wire->write(address);
 
-    if (_wire->endTransmission(false) != 0) {
+    if(_wire->endTransmission(false) != 0) {
       return -1;
     }
 
-    if (_wire->requestFrom(_slaveAddress, length) != length) {
+    size_t l = _wire->requestFrom(_slaveAddress, length, false);
+    if(l != length) {
       return 0;
     }
 
