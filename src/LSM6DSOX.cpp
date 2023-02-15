@@ -67,6 +67,9 @@
 
 #define LSM6DSOX_INTERNAL_FREQ_FINE 0x63
 
+// Number of retries after read or write error (this number is a bit arbitrary...)
+#define i2C_RETRIES                 5
+
 // Map from sample rate to ODR configuration bits
 std::map< uint16_t, uint8_t > mapSampleRateToODR = { 
   {   13, 0b0001 }, 
@@ -519,6 +522,7 @@ int LSM6DSOXClass::setSelfTestReg(uint8_t mask, uint8_t config) {
 
 int LSM6DSOXClass::readRegisters(uint8_t address, uint8_t* data, size_t length)
 {
+  uint8_t result = 0;
   if (_spi != NULL) {
     _spi->beginTransaction(_spiSettings);
     digitalWrite(_csPin, LOW);
@@ -526,24 +530,33 @@ int LSM6DSOXClass::readRegisters(uint8_t address, uint8_t* data, size_t length)
     _spi->transfer(data, length);
     digitalWrite(_csPin, HIGH);
     _spi->endTransaction();
+    result = 1;
   } else {
-    _wire->beginTransmission(_slaveAddress);
-    _wire->write(address);
-
-    if(_wire->endTransmission(false) != 0) {
-      return -1;
-    }
-
-    size_t l = _wire->requestFrom(_slaveAddress, length, false);
-    if(l != length) {
-      return 0;
-    }
-
-    for (size_t i = 0; i < length; i++) {
-      *data++ = _wire->read();
-    }
+    uint8_t retries = 0;
+    while((result != 1) && (retries++ < i2C_RETRIES)) {
+      _wire->beginTransmission(_slaveAddress);
+      _wire->write(address);
+      // Don't send stop bit to prevent other master from seizing
+      // the bus here
+      result = _wire->endTransmission(false);
+      if(result == 0) {
+        size_t l = _wire->requestFrom(_slaveAddress, length);
+        if(l == length) {
+          for (size_t i = 0; i < length; i++) {
+            *data++ = _wire->read();
+          }
+          result = 1;
+        } else {
+          Serial.println("readRegisters:requestFrom length = "+String(l)+" @ addr="+String(address));
+          result = 0;
+        }
+      } else {
+        Serial.println("readRegisters:endTransmission error = "+String(result)+" @ addr="+String(address)+" length "+String(length));
+        result = -1;
+      }
+    } // END while((result != 1) && (retries++ < i2C_RETRIES))
   }
-  return 1;
+  return result;
 }
 
 int LSM6DSOXClass::writeRegister(uint8_t address, uint8_t value)
@@ -556,12 +569,25 @@ int LSM6DSOXClass::writeRegister(uint8_t address, uint8_t value)
     digitalWrite(_csPin, HIGH);
     _spi->endTransaction();
   } else {
-    _wire->beginTransmission(_slaveAddress);
-    _wire->write(address);
-    _wire->write(value);
-    if (_wire->endTransmission() != 0) {
-      return 0;
+    uint8_t retries = 0;
+    uint8_t result = 2;
+    while((result != 0) && (retries++ < i2C_RETRIES)) {
+      _wire->beginTransmission(_slaveAddress);
+      _wire->write(address);
+      _wire->write(value);
+      if((result = _wire->endTransmission()) == 0) {
+        return 1;
+      } else { 
+        // result != 0 means an error:
+        // 1: data too long to fit in transmit buffer
+        // 2: received NACK on transmit of address
+        // 3: received NACK on transmit of data
+        // 4: other error
+        // 5: timeout
+        Serial.println("writeRegister:endTransmission error = "+String(result)+" @ addr="+String(address)+"="+String(value));
+      }
     }
+    return 0; // Still no sucess after multiple retries
   }
   return 1;
 }

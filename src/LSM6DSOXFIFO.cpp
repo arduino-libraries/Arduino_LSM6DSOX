@@ -42,10 +42,13 @@
 #define LSM6DSOX_EMB_FUNC_EN_B      0x05
 //#define LSM6DSOX_EMB_FUNC_PAGE_RW   0x17
 
+// Used by decoder for start-up
 #define PREVIOUSTAGCNT_UNDEFINED    0xFF
+#define PREVIOUSCOUNTER_UNDEFINED   0xFFFFFFFF
 
-// Mbed I2C Wire.cpp uses 256 as a magical number for buffer length
-#define I2C_BUFFER_LENGTH           256
+// I2C buffer size limited to 32 bytes, see link below.
+// https://reference.arduino.cc/reference/en/language/functions/communication/wire/
+#define I2C_BUFFER_LENGTH           32
 #define READ_MAX_WORDS              (I2C_BUFFER_LENGTH / BUFFER_BYTES_PER_WORD)
 
 // Number of retries after read error (this number is a bit arbitrary...)
@@ -180,6 +183,7 @@ void LSM6DSOXFIFOClass::begin()
 
   // Decoder
   previoustagcnt = PREVIOUSTAGCNT_UNDEFINED; // To have it initialized at 1st tagcnt
+  previously_released_counter = PREVIOUSCOUNTER_UNDEFINED;
 
   // Initialize circular sample buffer
   for(uint8_t idx = 0; idx < SAMPLE_BUFFER_SIZE; idx++) {
@@ -209,13 +213,8 @@ uint16_t LSM6DSOXFIFOClass::unread_words()
 int LSM6DSOXFIFOClass::readStatus(FIFOStatus& status)
 {
   uint8_t status_registers[2];
-  int result = 0;
-
-  // If the read operation fails, retry a few times
-  int retries = 0;
-  while((result != 1) && (retries++ < READ_RETRIES)) {
-    result = imu->readRegisters(LSM6DSOX_STATUS1, &status_registers[0], 2);
-  }
+  
+  int result = imu->readRegisters(LSM6DSOX_STATUS1, &status_registers[0], 2);
   if(result == 1) {
     status.DIFF_FIFO = status_registers[0] | ((status_registers[1] & 0x03) << 8);
     status.FIFO_OVR_LATCHED = (status_registers[1] & 0x08) == 0x08;
@@ -258,25 +257,16 @@ int LSM6DSOXFIFOClass::readData(uint16_t& words_read, bool& too_full, FIFOStatus
     if(to_read == 0) return 2; // No data read, but other reason than communication problem (<= 0)
 
     // Break down read operations into a maximum number of words
-    words_read = 0;
     while(to_read > 0) {
       uint16_t read_now = (to_read > READ_MAX_WORDS) ? READ_MAX_WORDS : to_read;
 
-      // If a read operation fails, retry a few times
-      int retries = 0;
-      result = 0;
-      while((result != 1) && (retries++ < READ_RETRIES)) {
-        // This read operation uses fifo register rounding, see AN5272 par. 9.8
-        result = imu->readRegisters(LSM6DSOX_FIFO_DATA_OUT_TAG, buffer_pointer(write_idx), to_read*BUFFER_BYTES_PER_WORD);
-      }
+      result = imu->readRegisters(LSM6DSOX_FIFO_DATA_OUT_TAG, buffer_pointer(write_idx), to_read*BUFFER_BYTES_PER_WORD);
       if(result != 1) return result;
 
       to_read -= read_now;
-      words_read += read_now;
+      if((write_idx += read_now) >= BUFFER_WORDS) write_idx -= BUFFER_WORDS; // Wrap around to buffer start
       buffer_empty = false;
     } // END while(to_read > 0)
-
-    if((write_idx += words_read) >= BUFFER_WORDS) write_idx -= BUFFER_WORDS; // Wrap around to buffer start
   }
   return result;
 }
@@ -434,6 +424,22 @@ int LSM6DSOXFIFOClass::releaseSample(uint16_t idx, Sample& extracted_sample)
 
     // Advance previoustagcnt one position
     previoustagcnt = (previoustagcnt+1) & 0x03;
+
+    // Check if released sample's counter equals the previously released
+    // sample's counter plus one
+    /*
+    if(previously_released_counter == PREVIOUSCOUNTER_UNDEFINED) {
+      previously_released_counter = extracted_sample.counter;
+    } else {
+      if(extracted_sample.counter != (previously_released_counter+1)) {
+        Serial.println("releaseSample:counter error: expected "+String(previously_released_counter+1)+", found "+String(extracted_sample.counter));
+      }
+      previously_released_counter = extracted_sample.counter;
+    }
+    */
+   if(extracted_sample.counter < 200) {
+    Serial.println("releaseSample:counter = "+String(extracted_sample.counter)+"timestamp_counter = "+String(timestamp_counter));
+   }
 
     return 1; // Sample released
   }

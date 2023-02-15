@@ -138,6 +138,7 @@ class LSM6DSOXFIFOClass {
     uint8_t         previoustagcnt;
     uint8_t         nextsampletagcnt;
     uint32_t        timestamp_counter;
+    uint32_t        previously_released_counter;
 
     // For convenience and clarity
     const uint8_t FIFO_DATA_OUT_TAG = 0;
