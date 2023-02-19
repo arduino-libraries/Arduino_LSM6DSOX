@@ -43,10 +43,9 @@
 //#define LSM6DSOX_EMB_FUNC_PAGE_RW   0x17
 
 // Used by decoder for start-up
-#define PREVIOUSTAGCNT_UNDEFINED    0xFF
-#define PREVIOUSCOUNTER_UNDEFINED   0xFFFFFFFF
+#define COUNTER_UNDEFINED           0xFFFFFFFF
 
-// I2C buffer size limited to 32 bytes, see link below.
+// I2C buffer size is limited to 32 bytes, see link below.
 // https://reference.arduino.cc/reference/en/language/functions/communication/wire/
 #define I2C_BUFFER_LENGTH           32
 #define READ_MAX_WORDS              (I2C_BUFFER_LENGTH / BUFFER_BYTES_PER_WORD)
@@ -67,7 +66,7 @@ std::map< uint8_t, uint8_t > mapTemperatureODR = { // ODR_T_BATCH_[1:0]
   { 52, 0b11 }
 };
 
-/* For debugging purposes
+//* For debugging purposes
 std::map<uint8_t, String> mapTagToStr = {
   { 0x01, "G_NC" }, 
   { 0x02, "XL_NC" }, 
@@ -88,7 +87,7 @@ std::map<uint8_t, String> mapTagToStr = {
   { 0x11, "SENS_HUB_3" },
   { 0x12, "STEP_CNT" },
   { 0x19, "SENS_HUB_NACK" }
-}; */
+}; //*/
 
 LSM6DSOXFIFOClass::LSM6DSOXFIFOClass(LSM6DSOXClass* imu) {
   this->imu = imu;
@@ -182,8 +181,8 @@ void LSM6DSOXFIFOClass::begin()
   buffer_empty = true;
 
   // Decoder
-  previoustagcnt = PREVIOUSTAGCNT_UNDEFINED; // To have it initialized at 1st tagcnt
-  previously_released_counter = PREVIOUSCOUNTER_UNDEFINED;
+  timestamp_counter = COUNTER_UNDEFINED;
+  to_release_counter = COUNTER_UNDEFINED;
 
   // Initialize circular sample buffer
   for(uint8_t idx = 0; idx < SAMPLE_BUFFER_SIZE; idx++) {
@@ -317,9 +316,10 @@ SampleStatus LSM6DSOXFIFOClass::getSample(Sample& sample)
       }
       
       SampleStatus decodeStatus = decodeWord(read_idx);
+      updateReadPointer(); // Updates buffer_empty as well
       switch(decodeStatus) {
         case SampleStatus::OK:
-          updateReadPointer(); // Updates buffer_empty as well
+          // Continue below, i.e. enter next !buffer_empty loop iteration
           break;
 
         case SampleStatus::TAG_NOT_IMPLEMENTED:
@@ -383,63 +383,37 @@ int LSM6DSOXFIFOClass::releaseSample(uint16_t idx, Sample& extracted_sample)
   // Tag counter
   uint8_t tagcnt = (word[FIFO_DATA_OUT_TAG] & 0x6) >> 1;  // T
 
-  // Previoustagcnt is undefined at fifo startup.
-  // If still unitialized, initialize it with tagcnt
-  if(previoustagcnt == PREVIOUSTAGCNT_UNDEFINED) {
-    previoustagcnt = tagcnt;
+  // timestamp_counter is undefined at fifo startup.
+  if(timestamp_counter == COUNTER_UNDEFINED) {
+    // If still unitialized, initialize it with tagcnt+4: this
+    // way, regardless of the value of tagcnt, its lower 2 bits
+    // resemble tagcnt while setting released_counter > 0
+    timestamp_counter = tagcnt + 4;
+    if(compressionEnabled) { // Enabled, samples are released up to T-3
+      to_release_counter = timestamp_counter-2;
+    } else {  // Disabled, samples are released up to T-1
+      to_release_counter = timestamp_counter;
+    }
   }
-  uint8_t previoustagcnt_2 = (previoustagcnt-2) & 0x03;   // prev T-2
 
-  // At each tagcnt update, a sample should be released.
-  // If compression is disabled, the previous sample is released.
-  // If compression is enabled, in principle the sample at T-3 is released,
-  // T being related to the current tagcnt. One or two tagcnts may be skipped,
-  // however - in that case, respectively 1 or 2 extra samples should be released
-  // before the new word is decoded.
-  uint8_t deltatagcnt = 
-    (previoustagcnt <= tagcnt) ? 
-      (tagcnt - previoustagcnt) : 
-      (4 - previoustagcnt + tagcnt);
-  if(deltatagcnt > 0) {
-    // Release a sample
-    if(compressionEnabled) { // Enabled, so release sample at T-3
-      // Release sample at previoustagcnt-2 by copying it, then initializing it as
-      // a new slot
-      extracted_sample = sample[previoustagcnt_2];
-      initializeSample(previoustagcnt_2);
-    } else { // No compression -> release previous sample (at T-1)
-      // Release sample at previoustagcnt by copying it, then initializing it as
-      // a new slot
-      extracted_sample = sample[previoustagcnt];
-      initializeSample(previoustagcnt);
+  // Update counter based on tagcnt
+  uint8_t prev_tagcnt = timestamp_counter & 0x03;
+  if(tagcnt != prev_tagcnt) {
+    if(tagcnt < prev_tagcnt) {
+      timestamp_counter += 4;
     }
+    timestamp_counter &= 0xFFFFFFFC;
+    timestamp_counter |= tagcnt;
+  }
 
-    // When previoustagcnt rolls over from 3 to 0, timestamp counter
-    // should increase rather than roll over
-    if(previoustagcnt == 3) {
-       timestamp_counter += 4;
-    }
-    timestamp_counter &= 0xFFFFFFFC; // clear lower 2 bits
-    timestamp_counter |= (uint32_t)tagcnt; // Fill lower 2 bits with tagcnt
-
-    // Advance previoustagcnt one position
-    previoustagcnt = (previoustagcnt+1) & 0x03;
-
-    // Check if released sample's counter equals the previously released
-    // sample's counter plus one
-    /*
-    if(previously_released_counter == PREVIOUSCOUNTER_UNDEFINED) {
-      previously_released_counter = extracted_sample.counter;
-    } else {
-      if(extracted_sample.counter != (previously_released_counter+1)) {
-        Serial.println("releaseSample:counter error: expected "+String(previously_released_counter+1)+", found "+String(extracted_sample.counter));
-      }
-      previously_released_counter = extracted_sample.counter;
-    }
-    */
-   if(extracted_sample.counter < 200) {
-    Serial.println("releaseSample:counter = "+String(extracted_sample.counter)+"timestamp_counter = "+String(timestamp_counter));
-   }
+  uint8_t delta_cnt = compressionEnabled ? 2 : 0;
+  if(to_release_counter < (timestamp_counter - delta_cnt)) {
+    uint8_t releasecnt = (uint8_t)(to_release_counter & 0x03);
+displaySamples();
+    extracted_sample = sample[releasecnt];
+    initializeSample(releasecnt);
+    to_release_counter++;
+Serial.println("releaseSample: extracted releasecnt "+String(releasecnt)+" timestamp_counter="+String(timestamp_counter)+" to_release_counter="+String(to_release_counter));
 
     return 1; // Sample released
   }
@@ -461,6 +435,7 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
 
   // Decode tag
   uint8_t tag = word[FIFO_DATA_OUT_TAG] >> 3;
+Serial.println("decodeWord: idx="+String(idx)+" tagcnt="+String(tagcnt)+" tag="+String(tag)+" ("+mapTagToStr[tag]+")");
   switch(tag) {
     case 0x01: // Gyroscope NC Main Gyroscope uncompressed data
     {
@@ -659,7 +634,7 @@ int16_t LSM6DSOXFIFOClass::int8ToInt16(uint8_t eight)
     (int16_t)eight & 0x007F;
 }
 
-/* For debugging purposes
+// For debugging purposes
 void LSM6DSOXFIFOClass::displaySamples()
 {
   Serial.println("---");
@@ -669,4 +644,4 @@ void LSM6DSOXFIFOClass::displaySamples()
     Serial.println(" XL=("+String(sample[idx].XL_X)+", " + String(sample[idx].XL_Y) + ", "+String(sample[idx].XL_Z) + ") {FS="+String(sample[idx].XL_fullScale)+"}");
   }
   Serial.println("---");
-} */
+} //*/
