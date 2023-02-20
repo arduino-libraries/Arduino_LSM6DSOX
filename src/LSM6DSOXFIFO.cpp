@@ -66,7 +66,7 @@ std::map< uint8_t, uint8_t > mapTemperatureODR = { // ODR_T_BATCH_[1:0]
   { 52, 0b11 }
 };
 
-//* For debugging purposes
+/* For debugging purposes
 std::map<uint8_t, String> mapTagToStr = {
   { 0x01, "G_NC" }, 
   { 0x02, "XL_NC" }, 
@@ -87,7 +87,7 @@ std::map<uint8_t, String> mapTagToStr = {
   { 0x11, "SENS_HUB_3" },
   { 0x12, "STEP_CNT" },
   { 0x19, "SENS_HUB_NACK" }
-}; //*/
+}; */
 
 LSM6DSOXFIFOClass::LSM6DSOXFIFOClass(LSM6DSOXClass* imu) {
   this->imu = imu;
@@ -259,7 +259,7 @@ int LSM6DSOXFIFOClass::readData(uint16_t& words_read, bool& too_full, FIFOStatus
     while(to_read > 0) {
       uint16_t read_now = (to_read > READ_MAX_WORDS) ? READ_MAX_WORDS : to_read;
 
-      result = imu->readRegisters(LSM6DSOX_FIFO_DATA_OUT_TAG, buffer_pointer(write_idx), to_read*BUFFER_BYTES_PER_WORD);
+      result = imu->readRegisters(LSM6DSOX_FIFO_DATA_OUT_TAG, buffer_pointer(write_idx), read_now*BUFFER_BYTES_PER_WORD);
       if(result != 1) return result;
 
       to_read -= read_now;
@@ -385,15 +385,13 @@ int LSM6DSOXFIFOClass::releaseSample(uint16_t idx, Sample& extracted_sample)
 
   // timestamp_counter is undefined at fifo startup.
   if(timestamp_counter == COUNTER_UNDEFINED) {
-    // If still unitialized, initialize it with tagcnt+4: this
-    // way, regardless of the value of tagcnt, its lower 2 bits
-    // resemble tagcnt while setting released_counter > 0
-    timestamp_counter = tagcnt + 4;
-    if(compressionEnabled) { // Enabled, samples are released up to T-3
-      to_release_counter = timestamp_counter-2;
-    } else {  // Disabled, samples are released up to T-1
-      to_release_counter = timestamp_counter;
-    }
+    // If still unitialized, initialize it with tagcnt,
+    // so the lower 2 bits always resemble tagcnt
+    timestamp_counter = tagcnt;
+
+    // The first sample to be released is that of
+    // the current timestamp counter
+    to_release_counter = timestamp_counter;
   }
 
   // Update counter based on tagcnt
@@ -406,14 +404,16 @@ int LSM6DSOXFIFOClass::releaseSample(uint16_t idx, Sample& extracted_sample)
     timestamp_counter |= tagcnt;
   }
 
+  // If compression is enabled, there should be a delay of
+  // 2 in releasing samples to account for the compression
+  // algorithm modifying data at T-2 and T-1, rather than 
+  // just at time T.
   uint8_t delta_cnt = compressionEnabled ? 2 : 0;
-  if(to_release_counter < (timestamp_counter - delta_cnt)) {
+  if((to_release_counter + delta_cnt) < timestamp_counter) {
     uint8_t releasecnt = (uint8_t)(to_release_counter & 0x03);
-displaySamples();
     extracted_sample = sample[releasecnt];
     initializeSample(releasecnt);
     to_release_counter++;
-Serial.println("releaseSample: extracted releasecnt "+String(releasecnt)+" timestamp_counter="+String(timestamp_counter)+" to_release_counter="+String(to_release_counter));
 
     return 1; // Sample released
   }
@@ -435,7 +435,6 @@ SampleStatus LSM6DSOXFIFOClass::decodeWord(uint16_t idx)
 
   // Decode tag
   uint8_t tag = word[FIFO_DATA_OUT_TAG] >> 3;
-Serial.println("decodeWord: idx="+String(idx)+" tagcnt="+String(tagcnt)+" tag="+String(tag)+" ("+mapTagToStr[tag]+")");
   switch(tag) {
     case 0x01: // Gyroscope NC Main Gyroscope uncompressed data
     {
@@ -611,8 +610,29 @@ Serial.println("decodeWord: idx="+String(idx)+" tagcnt="+String(tagcnt)+" tag="+
 
 void LSM6DSOXFIFOClass::initializeSample(uint8_t idx)
 {
+  // timestamp and temperature are not always sent
   sample[idx].timestamp = NAN;
   sample[idx].temperature = NAN;
+
+  // Set counter and full scale to 'impossible' values
+  // to help identifying errors
+  sample[idx].counter = COUNTER_UNDEFINED;
+  sample[idx].XL_fullScale = 0;
+  sample[idx].G_fullScale = 0;
+
+  // If compression is disabled, XL and G data may be
+  // set to remarkable values in order to signal errors
+  if(!compressionEnabled) {
+    int16_t default_value = 0x7FFF;
+
+    sample[idx].XL_X = default_value;
+    sample[idx].XL_Y = default_value;
+    sample[idx].XL_Z = default_value;
+
+    sample[idx].G_X = default_value;
+    sample[idx].G_Y = default_value;
+    sample[idx].G_Z = default_value;
+  }
 }
 
 int16_t LSM6DSOXFIFOClass::bytesToInt16(uint8_t lo, uint8_t hi)
@@ -634,7 +654,7 @@ int16_t LSM6DSOXFIFOClass::int8ToInt16(uint8_t eight)
     (int16_t)eight & 0x007F;
 }
 
-// For debugging purposes
+/* For debugging purposes
 void LSM6DSOXFIFOClass::displaySamples()
 {
   Serial.println("---");
@@ -644,4 +664,4 @@ void LSM6DSOXFIFOClass::displaySamples()
     Serial.println(" XL=("+String(sample[idx].XL_X)+", " + String(sample[idx].XL_Y) + ", "+String(sample[idx].XL_Z) + ") {FS="+String(sample[idx].XL_fullScale)+"}");
   }
   Serial.println("---");
-} //*/
+} */
