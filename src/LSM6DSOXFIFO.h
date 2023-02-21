@@ -147,9 +147,9 @@ class LSM6DSOXFIFOClass {
     const uint8_t FIFO_DATA_OUT_Z_L = 5;
     const uint8_t FIFO_DATA_OUT_Z_H = 6;
 
-    //* For debugging purposes
+    /* For debugging purposes
     void displaySamples();
-    //*/
+    */
 };
 
 #endif

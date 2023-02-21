@@ -262,6 +262,7 @@ int LSM6DSOXFIFOClass::readData(uint16_t& words_read, bool& too_full, FIFOStatus
       result = imu->readRegisters(LSM6DSOX_FIFO_DATA_OUT_TAG, buffer_pointer(write_idx), read_now*BUFFER_BYTES_PER_WORD);
       if(result != 1) return result;
 
+      words_read += read_now;
       to_read -= read_now;
       if((write_idx += read_now) >= BUFFER_WORDS) write_idx -= BUFFER_WORDS; // Wrap around to buffer start
       buffer_empty = false;
