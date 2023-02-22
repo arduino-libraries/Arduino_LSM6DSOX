@@ -16,6 +16,7 @@
 #include <Arduino_LSM6DSOX.h>
 #include <Wire.h>
 #include <limits.h>
+#include <math.h> // isnan
 
 int lasttime;
 
@@ -26,6 +27,9 @@ unsigned long execution_time_max;
 unsigned long execution_time_sum;
 int execution_time_N;
 
+double T_sum;
+int T_N;
+
 #define REPORT_INTERVAL 10000
 
 void setup() {
@@ -33,7 +37,7 @@ void setup() {
   while (!Serial);
   Serial.println("Starting device...");
 
-  IMU.settings.sampleRate = 3333;
+  IMU.settings.sampleRate = 1667;
   if (!IMU.begin()) {
     Serial.println("Failed to initialize IMU!");
 
@@ -47,7 +51,7 @@ void setup() {
 
   IMU.fifo.settings.compression = true;
   IMU.fifo.settings.timestamp_decimation = 8;
-  IMU.fifo.settings.temperature_frequency = 2;
+  IMU.fifo.settings.temperature_frequency = 52;
   IMU.fifo.begin();
 
   // Wait until samples are being produced
@@ -68,6 +72,9 @@ void setup() {
   execution_time_max = 0;
   execution_time_sum = 0;
   execution_time_N = 0;
+
+  T_sum = 0.0;
+  T_N = 0;
 }
 
 void loop() {
@@ -89,8 +96,20 @@ void loop() {
           errorOccurred = true;
           break;
         }
-        prev_counter = sample.counter;        
       }
+      prev_counter = sample.counter;     
+
+      if(execution_time_min > execution_time) execution_time_min = execution_time;
+      if(execution_time_max < execution_time) execution_time_max = execution_time;
+      execution_time_sum += execution_time;
+      execution_time_N++;
+
+      // In some samples T is defined (not isnan)
+      if(!isnan(sample.temperature)) {
+        T_sum += sample.temperature;
+        T_N++;
+      }
+
       /*
       Serial.println("sample retrieved: counter="+String(sample.counter)+" t="+String(sample.timestamp)+" T="+String(sample.temperature)+
         " XL="+String(sample.XL_X)+","+String(sample.XL_Y)+","+String(sample.XL_Z)+"(FS "+String(sample.XL_fullScale)+")"+
@@ -133,14 +152,9 @@ void loop() {
   }
 
   // Reporting
-  if(execution_time_min > execution_time) execution_time_min = execution_time;
-  if(execution_time_max < execution_time) execution_time_max = execution_time;
-  execution_time_sum += execution_time;
-  execution_time_N++;
-
-  if(execution_time_N > 10000) {
-    int currenttime = millis();
-    int deltat = currenttime - lasttime;
+  int currenttime = millis();
+  int deltat = currenttime - lasttime;
+  if(deltat > REPORT_INTERVAL) {
     double frequency = (double)execution_time_N / (0.001*deltat);
     Serial.println("Sample frequency = " + String(frequency));
     lasttime = currenttime;
@@ -150,10 +164,14 @@ void loop() {
     Serial.println("\tmax = "+String(execution_time_max));
     Serial.println("\tavg = "+String((double)execution_time_sum / execution_time_N));
     Serial.println("\t%   = "+String((double)execution_time_sum / (10.0*deltat)));
-    Serial.println("---");
     execution_time_min = ULONG_MAX;
     execution_time_max = 0;
     execution_time_sum = 0;
     execution_time_N = 0;
+
+    Serial.println("Tavg = "+String(T_sum / T_N));
+    T_sum = 0.0;
+    T_N = 0;
+    Serial.println("---");
   }
 }
