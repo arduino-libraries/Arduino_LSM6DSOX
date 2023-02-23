@@ -60,14 +60,30 @@ None.
 #### Example
 
 ```
+IMU.settings.sampleRate = 417;
 if (!IMU.begin()) {
     Serial.println("Failed to initialize IMU!");
     while (1);
 }
 
-// Read IMU data...
+// Setup and start FIFO
+IMU.fifo.settings.compression = true;
+IMU.fifo.settings.timestamp_decimation = 8;
+IMU.fifo.settings.temperature_frequency = 52;
+IMU.fifo.begin();
 
-// Done with the IMU readings
+// Read IMU data...
+Sample sample;
+SampleStatus sampleResult = IMU.fifo.getSample(sample);
+if(sampleResult == SampleStatus::OK) {
+  // Use sample data
+} else if(sampleResult == SampleStatus::BUFFER_UNDERRUN) {
+  // No data available, do other stuff
+} else {
+  // Handle error
+}
+
+// Done with the IMU readings. Will stop FIFO as a first step
 IMU.end();
 ```
 
