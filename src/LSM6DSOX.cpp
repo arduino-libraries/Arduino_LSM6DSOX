@@ -547,7 +547,7 @@ int LSM6DSOXClass::readRegisters(uint8_t address, uint8_t* data, size_t length)
           }
           result = 1;
         } else {
-          Serial.println("readRegisters:requestFrom length = "+String(l)+" @ addr="+String(address));
+          Serial.println("readRegisters:requestFrom length="+String(l)+"/"+String(length)+" @ addr="+String(address));
           result = 0;
         }
       } else {
