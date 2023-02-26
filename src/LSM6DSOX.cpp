@@ -150,7 +150,8 @@ int LSM6DSOXClass::begin()
     }
   }
 
-  if (!(readRegister(LSM6DSOX_WHO_AM_I_REG) == 0x6C || readRegister(LSM6DSOX_WHO_AM_I_REG) == 0x69)) {
+  // Check WHOAMI. Fixed at 0x6C according to data sheet
+  if (readRegister(LSM6DSOX_WHO_AM_I_REG) != 0x6C) {
     end();
     return 0;
   }
@@ -185,7 +186,11 @@ int LSM6DSOXClass::begin()
   uint8_t ctrl2_xl = (odr << 4) | (fs_g << 1);
   writeRegister(LSM6DSOX_CTRL2_G, ctrl2_xl);
 
-  // leave CTRL3_C as it is
+  // CTRL4_C: set BDU
+  int ctrl3_c_value = readRegister(LSM6DSOX_CTRL3_C);
+  ctrl3_c_value |= 0x40; // Set BDU to 1
+  writeRegister(LSM6DSOX_CTRL3_C, ctrl3_c_value);
+
   // leave CTRL4_C as it is
   // leave CTRL5_C as it is
 
@@ -496,16 +501,16 @@ int LSM6DSOXClass::setPosSelfTestXL() {
   return setSelfTestReg(0xFC, 0x01);
 }
 int LSM6DSOXClass::setNegSelfTestXL() {
-  return setSelfTestReg(0xFC, 0x10);
+  return setSelfTestReg(0xFC, 0x02);
 }
 int LSM6DSOXClass::resetSelfTestXL() {
   return setSelfTestReg(0xFC, 0x00);
 }
 int LSM6DSOXClass::setPosSelfTestG() {
-  return setSelfTestReg(0xF3, 0x01);
+  return setSelfTestReg(0xF3, 0x04);
 }
 int LSM6DSOXClass::setNegSelfTestG() {
-  return setSelfTestReg(0xF3, 0x11);
+  return setSelfTestReg(0xF3, 0x0C);
 }
 int LSM6DSOXClass::resetSelfTestG() {
   return setSelfTestReg(0xF3, 0x00);
@@ -532,8 +537,7 @@ int LSM6DSOXClass::readRegisters(uint8_t address, uint8_t* data, size_t length)
     _spi->endTransaction();
     result = 1;
   } else {
-    uint8_t retries = 0;
-    while((result != 1) && (retries++ < i2C_RETRIES)) {
+    for(uint8_t retries = 0; (result != 1) && (retries < i2C_RETRIES); retries++) {
       _wire->beginTransmission(_slaveAddress);
       _wire->write(address);
       // Don't send stop bit to prevent other master from seizing
@@ -545,13 +549,12 @@ int LSM6DSOXClass::readRegisters(uint8_t address, uint8_t* data, size_t length)
           for (size_t i = 0; i < length; i++) {
             *data++ = _wire->read();
           }
-          result = 1;
-        } else {
-          Serial.println("readRegisters:requestFrom length="+String(l)+"/"+String(length)+" @ addr="+String(address));
-          result = 0;
-        }
+          return 1;
+        } 
+        //Serial.println("readRegisters:requestFrom length="+String(l)+"/"+String(length)+" @ addr="+String(address));
+        result = 0;
       } else {
-        Serial.println("readRegisters:endTransmission error = "+String(result)+" @ addr="+String(address)+" length "+String(length));
+        //Serial.println("readRegisters:endTransmission error = "+String(result)+" @ addr="+String(address)+" length "+String(length));
         result = -1;
       }
     } // END while((result != 1) && (retries++ < i2C_RETRIES))
@@ -569,9 +572,9 @@ int LSM6DSOXClass::writeRegister(uint8_t address, uint8_t value)
     digitalWrite(_csPin, HIGH);
     _spi->endTransaction();
   } else {
-    uint8_t retries = 0;
+    
     uint8_t result = 2;
-    while((result != 0) && (retries++ < i2C_RETRIES)) {
+    for(uint8_t retries = 0; retries < i2C_RETRIES; retries++) {
       _wire->beginTransmission(_slaveAddress);
       _wire->write(address);
       _wire->write(value);
@@ -584,7 +587,7 @@ int LSM6DSOXClass::writeRegister(uint8_t address, uint8_t value)
         // 3: received NACK on transmit of data
         // 4: other error
         // 5: timeout
-        Serial.println("writeRegister:endTransmission error = "+String(result)+" @ addr="+String(address)+"="+String(value));
+        // Do nothing here -> retry
       }
     }
     return 0; // Still no sucess after multiple retries

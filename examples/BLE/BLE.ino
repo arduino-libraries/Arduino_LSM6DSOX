@@ -15,10 +15,8 @@
 */
 
 #include <Arduino_LSM6DSOX.h>
-#include <Wire.h>
 #include <ArduinoBLE.h>
 
-#include <limits.h>
 #include <math.h> // isnan
 #include <map>
 
@@ -66,8 +64,6 @@ BLECharacteristic sensorCharacteristic(BLE_UUID_SENSOR_DATA, BLERead | BLENotify
 uint8_t current_sample;
 uint8_t current_block;
 
-bool disconnected;
-
 std::map<SampleStatus, String> mapSampleStatusToString = {
   {SampleStatus::OK, "OK"},
   {SampleStatus::BUFFER_UNDERRUN, "BUFFER_UNDERRUN"},
@@ -79,13 +75,15 @@ std::map<SampleStatus, String> mapSampleStatusToString = {
 };
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   while (!Serial);
   Serial.println("Starting device...");
 
   Serial.println("SensorData size="+String(sizeof(SensorData)));
 
-  IMU.settings.sampleRate = 417;
+  IMU.settings.sampleRate = 104;
+  IMU.settings.accelRange = 2;
+  IMU.settings.gyroRange = 500;
   if (!IMU.begin()) {
     Serial.println("Failed to initialize IMU!");
 
@@ -108,19 +106,24 @@ void setup() {
   BLE.setAdvertisedService(imuService); // add the service UUID
   imuService.addCharacteristic(sensorCharacteristic);
   BLE.addService(imuService);
+  
+  // assign event handlers for connected, disconnected to peripheral
+  BLE.setEventHandler(BLEConnected, blePeripheralConnectHandler);
+  BLE.setEventHandler(BLEDisconnected, blePeripheralDisconnectHandler);
+
+  // Initial value
   sensorCharacteristic.writeValue((const uint8_t*)&sensordata, sizeof(SensorData));
 
   /* Start advertising Bluetooth® Low Energy.  It will start continuously transmitting Bluetooth® Low Energy
      advertising packets and will be visible to remote Bluetooth® Low Energy central devices
      until it receives a new connection */
+  BLE.setConnectionInterval(0x0006, 0x000A);
   BLE.advertise();
   Serial.println("Bluetooth® device active (rssi="+String(BLE.rssi())+"), waiting for connections...");
 
   // Initialize
   current_sample = 0;
   current_block = 0;
-
-  disconnected = true;
 }
 
 void loop() {
@@ -130,46 +133,37 @@ void loop() {
   // if a central is connected to the peripheral:
   if (central) {
     if (central.connected()) {
-      if(disconnected) {
-        disconnected = false;
-              
-        Serial.print("Connected to central: ");
-        // print the central's BT address:
-        Serial.println(central.address());
-
-        //Start FIFO
-        IMU.resetTimestamp();
-
-        IMU.fifo.settings.compression = false;
-        IMU.fifo.settings.timestamp_decimation = 8;
-        IMU.fifo.settings.temperature_frequency = 2;
-        IMU.fifo.begin();
-
-        // Wait until samples are being produced
-        FIFOStatus status;
-        do {
-          delay(1);
-          if(IMU.fifo.readStatus(status) != 1) {
-            Serial.println("Error reading from IMU!");
-            while (1);
-          }
-        } while(status.DIFF_FIFO == 0);
-      }
-
       Sample sample;
       SampleStatus sampleResult = IMU.fifo.getSample(sample);
-      if(sampleResult == SampleStatus::BUFFER_UNDERRUN) {
-        // No sample available, wait a short while
-        delay(1);
-      } else if(sampleResult == SampleStatus::OK) {
+      if(sampleResult == SampleStatus::OK) {
+        // Test
+        uint32_t blocknr = sample.counter / 100;
+        if(sample.counter == (blocknr*100)) {        
+          switch(blocknr) {
+            case 3:
+              IMU.setPosSelfTestG();
+              IMU.setPosSelfTestXL();
+              break;
+            case 6:
+              IMU.setNegSelfTestG();
+              IMU.setNegSelfTestXL();
+              break;
+            default:
+              IMU.resetSelfTestG();
+              IMU.resetSelfTestXL();
+          }
+        }
+
         // Create new block if a timestamp is found
         if((current_block < BLE_BLOCKS_PER_PACKET) && !isnan(sample.timestamp)) {
           current_block++;
           if(current_block >= BLE_BLOCKS_PER_PACKET) {
             sensordata.blocks = current_block;
-
+//unsigned long currentTime = micros();
             // Send BLE packet
-            sensorCharacteristic.writeValue((const uint8_t*)&sensordata, sizeof(SensorData));
+            sensorCharacteristic.writeValue((const uint8_t*)&sensordata, sizeof(SensorData), false);
+//unsigned long deltaTime = micros() - currentTime;
+//Serial.println("Sending BLE packet took "+String(deltaTime)+"us");
 
             // New packet, reset block
             current_block = 0;
@@ -207,19 +201,34 @@ void loop() {
           current_sample++;
           sensordata.block[current_block].samples = current_sample;
         }
-      } else {
+      } else if(sampleResult != SampleStatus::BUFFER_UNDERRUN) {
         Serial.println("Error reading from IMU: "+mapSampleStatusToString[sampleResult]+" @ counter="+String(sample.counter));
       }
     }
-  } else {
-    if(!disconnected) {
-      disconnected = true;
+  } // END if (central.connected())
+      
+  // poll for Bluetooth® Low Energy events
+  BLE.poll();
+}
 
-      // Stop FIFO
-      IMU.fifo.end();
+void blePeripheralConnectHandler(BLEDevice central) {
+  // central connected event handler
+  Serial.print("Connected event, central: ");
+  Serial.println(central.address());
+  
+  // Reset timestamp
+  IMU.resetTimestamp();
 
-      Serial.println("");
-      Serial.println("Disconnected from central");
-    }
-  }
+  //Start FIFO
+  IMU.fifo.settings.compression = true;
+  IMU.fifo.settings.timestamp_decimation = 8;
+  IMU.fifo.settings.temperature_frequency = 2;
+  IMU.fifo.begin();
+}
+
+void blePeripheralDisconnectHandler(BLEDevice central) {
+  // central disconnected event handler
+  IMU.fifo.end();
+  Serial.print("Disconnected event, central: ");
+  Serial.println(central.address());
 }
