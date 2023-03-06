@@ -68,7 +68,7 @@
 #define LSM6DSOX_INTERNAL_FREQ_FINE 0x63
 
 // Number of retries after read or write error (this number is a bit arbitrary...)
-#define i2C_RETRIES                 5
+#define I2C_RETRIES                 5
 
 // Map from sample rate to ODR configuration bits
 std::map< uint16_t, uint8_t > mapSampleRateToODR = { 
@@ -186,7 +186,7 @@ int LSM6DSOXClass::begin()
   uint8_t ctrl2_xl = (odr << 4) | (fs_g << 1);
   writeRegister(LSM6DSOX_CTRL2_G, ctrl2_xl);
 
-  // CTRL4_C: set BDU
+  // CTRL3_C: set BDU
   int ctrl3_c_value = readRegister(LSM6DSOX_CTRL3_C);
   ctrl3_c_value |= 0x40; // Set BDU to 1
   writeRegister(LSM6DSOX_CTRL3_C, ctrl3_c_value);
@@ -197,7 +197,7 @@ int LSM6DSOXClass::begin()
   // set accelerometer power mode to high performance and LPF1 cutoff as high as possible
   writeRegister(LSM6DSOX_CTRL6_C, 0x03);
 
-  // set gyroscope power mode to high performance and HPF cutoff to 16 mMHz
+  // set gyroscope power mode to high performance
   writeRegister(LSM6DSOX_CTRL7_G, 0x00);
 
   // Set the ODR config register to ODR/4
@@ -537,7 +537,7 @@ int LSM6DSOXClass::readRegisters(uint8_t address, uint8_t* data, size_t length)
     _spi->endTransaction();
     result = 1;
   } else {
-    for(uint8_t retries = 0; (result != 1) && (retries < i2C_RETRIES); retries++) {
+    for(uint8_t retries = 0; (result != 1) && (retries < I2C_RETRIES); retries++) {
       _wire->beginTransmission(_slaveAddress);
       _wire->write(address);
       // Don't send stop bit to prevent other master from seizing
@@ -546,18 +546,17 @@ int LSM6DSOXClass::readRegisters(uint8_t address, uint8_t* data, size_t length)
       if(result == 0) {
         size_t l = _wire->requestFrom(_slaveAddress, length);
         if(l == length) {
-          for (size_t i = 0; i < length; i++) {
+          for (size_t i = 0; i < l; i++) {
             *data++ = _wire->read();
           }
-          return 1;
-        } 
-        //Serial.println("readRegisters:requestFrom length="+String(l)+"/"+String(length)+" @ addr="+String(address));
-        result = 0;
+          return 1; // Success!
+        } else {
+          result = 0; // Error reading the right number of bytes
+        }
       } else {
-        //Serial.println("readRegisters:endTransmission error = "+String(result)+" @ addr="+String(address)+" length "+String(length));
-        result = -1;
+        result = -1;  // Error sending (writing) register index
       }
-    } // END while((result != 1) && (retries++ < i2C_RETRIES))
+    } // END while((result != 1) && (retries++ < I2C_RETRIES))
   }
   return result;
 }
@@ -574,7 +573,7 @@ int LSM6DSOXClass::writeRegister(uint8_t address, uint8_t value)
   } else {
     
     uint8_t result = 2;
-    for(uint8_t retries = 0; retries < i2C_RETRIES; retries++) {
+    for(uint8_t retries = 0; retries < I2C_RETRIES; retries++) {
       _wire->beginTransmission(_slaveAddress);
       _wire->write(address);
       _wire->write(value);

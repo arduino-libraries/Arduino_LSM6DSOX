@@ -14,7 +14,6 @@
 */
 
 #include <Arduino_LSM6DSOX.h>
-#include <Wire.h>
 #include <limits.h>
 #include <math.h> // isnan
 
@@ -30,7 +29,7 @@ int execution_time_N;
 double T_sum;
 int T_N;
 
-#define REPORT_INTERVAL 10000
+#define REPORT_INTERVAL 5000
 
 void setup() {
   Serial.begin(115200);
@@ -169,7 +168,7 @@ void loop() {
     execution_time_sum = 0;
     execution_time_N = 0;
 
-    Serial.println("Tavg = "+String(T_sum / T_N));
+    Serial.println("Tavg = "+String(T_sum / T_N)+" degC ("+String(T_N)+" samples)");
     T_sum = 0.0;
     T_N = 0;
     Serial.println("---");
