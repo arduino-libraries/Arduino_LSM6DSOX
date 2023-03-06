@@ -134,7 +134,7 @@ void loop() {
       errorOccurred = true;
       break;
     case SampleStatus::UNKNOWN_TAG:
-      Serial.print("Unknow tag error");
+      Serial.print("Unknown tag error");
       errorOccurred = true;
       break;
     case SampleStatus::BUFFER_OVERRUN:
