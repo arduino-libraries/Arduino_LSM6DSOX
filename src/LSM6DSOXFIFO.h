@@ -102,21 +102,11 @@ class LSM6DSOXFIFOClass {
     void begin();
     void end();
 
-    // Fetch data from IMU fifo
     int             readStatus(FIFOStatus& status);
-    int             readData(uint16_t& words_read, bool& too_full, FIFOStatus& status);
 
     // Retrieve fetched data from local buffer
     SampleStatus    getRawWord(RawWord& word);
     SampleStatus    getSample(Sample& sample);
-
-    uint8_t         buffer[BUFFER_WORDS * BUFFER_BYTES_PER_WORD];
-    uint16_t        read_idx;
-    uint16_t        write_idx;
-    bool            buffer_empty;
-
-    double          timestampCorrection;
-    bool            compressionEnabled;
 
   private:
     LSM6DSOXClass*  imu;
@@ -124,6 +114,7 @@ class LSM6DSOXFIFOClass {
     void            updateReadPointer();
     uint16_t        unread_words();
     SampleStatus    inspectWord(uint16_t idx);
+    int             readData(uint16_t& words_read, bool& too_full, FIFOStatus& status);
     int             releaseSample(uint16_t idx, Sample& extracted_sample);
     SampleStatus    decodeWord(uint16_t idx);
 
@@ -137,6 +128,14 @@ class LSM6DSOXFIFOClass {
     Sample          sample[SAMPLE_BUFFER_SIZE]; // Ring buffer, contains the words at T-3, T-2, T-1 and T
     uint32_t        timestamp_counter;
     uint32_t        to_release_counter;
+
+    uint8_t         buffer[BUFFER_WORDS * BUFFER_BYTES_PER_WORD];
+    uint16_t        read_idx;
+    uint16_t        write_idx;
+    bool            buffer_empty;
+
+    double          timestampCorrection;
+    bool            compressionEnabled;
 
     // For convenience and clarity
     const uint8_t FIFO_DATA_OUT_TAG = 0;

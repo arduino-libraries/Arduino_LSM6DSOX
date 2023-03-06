@@ -7,22 +7,43 @@
 Arduino_LSM6DSOX	KEYWORD1
 LSM6DSOX	KEYWORD1
 IMU	KEYWORD1
+LSM6DSOXFIFOClass	KEYWORD1
 
 #######################################
 # Methods and Functions 
 #######################################	
 
+initializeSettings	KEYWORD2
 begin	KEYWORD2
 end	KEYWORD2
+reset	KEYWORD2
 
 readAcceleration	KEYWORD2
 readGyroscope	KEYWORD2
 gyroscopeAvailable	KEYWORD2
 accelerationAvailable	KEYWORD2
 accelerationSampleRate	KEYWORD2
+accelerationFullScalee	KEYWORD2
+setAccelerationFullScalee	KEYWORD2
 gyroscopeSampleRate	KEYWORD2
+gyroscopeFullScale	KEYWORD2
+setGyroscopeFullScale	KEYWORD2
 readTemperature	KEYWORD2
+readTemperatureFloat	KEYWORD2
 temperatureAvailable	KEYWORD2
+readTimestamp	KEYWORD2
+readTimestampDouble	KEYWORD2
+resetTimestamp	KEYWORD2
+setPosSelfTestXL	KEYWORD2
+setNegSelfTestXL	KEYWORD2
+resetSelfTestXL	KEYWORD2
+setPosSelfTestG	KEYWORD2
+setNegSelfTestG	KEYWORD2
+resetSelfTestG	KEYWORD2
+
+readStatus	KEYWORD2
+getRawWord	KEYWORD2
+getSample	KEYWORD2
 
 #######################################
 # Constants
