@@ -589,7 +589,7 @@ int LSM6DSOXClass::writeRegister(uint8_t address, uint8_t value)
         // Do nothing here -> retry
       }
     }
-    return 0; // Still no sucess after multiple retries
+    return 0; // Still no success after multiple retries
   }
   return 1;
 }

@@ -386,7 +386,7 @@ int LSM6DSOXFIFOClass::releaseSample(uint16_t idx, Sample& extracted_sample)
 
   // timestamp_counter is undefined at fifo startup.
   if(timestamp_counter == COUNTER_UNDEFINED) {
-    // If still unitialized, initialize it with tagcnt,
+    // If still uninitialized, initialize it with tagcnt,
     // so the lower 2 bits always resemble tagcnt
     timestamp_counter = tagcnt;
 
