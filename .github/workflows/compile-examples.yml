@@ -36,6 +36,7 @@ jobs:
           - fqbn: arduino:mbed_nano:nanorp2040connect
             platforms: |
               - name: arduino:mbed_nano
+            artifact-name-suffix: arduino-mbed_nano-nanorp2040connect
 
     steps:
       - name: Checkout repository
@@ -62,4 +63,4 @@ jobs:
         with:
           if-no-files-found: error
           path: ${{ env.SKETCHES_REPORTS_PATH }}
-          name: ${{ env.SKETCHES_REPORTS_PATH }}
+          name: sketches-report-${{ matrix.board.artifact-name-suffix }}
