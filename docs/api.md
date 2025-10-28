@@ -378,7 +378,7 @@ Reads the temperature from the sensor (Celsius).
 #### Syntax 
 
 ```
-IMU.readTemperatureFloat(float& temperature_deg)
+IMU.readTemperatureFloat(temperature_deg)
 ```
 
 #### Parameters
