@@ -346,7 +346,7 @@ Reads the temperature from the sensor (Celsius).
 #### Syntax 
 
 ```
-IMU.readTemperature(int& temperature_deg)
+IMU.readTemperature(temperature_deg)
 ```
 
 #### Parameters
