@@ -346,16 +346,16 @@ Reads the temperature from the sensor (Celsius).
 #### Syntax 
 
 ```
-IMU.readTemperature()
+IMU.readTemperature(temperature_deg)
 ```
 
 #### Parameters
 
-None.
+* _temperature_deg_: int variable where the temperature value will be stored.
 
 #### Returns
 
-The temperature in Celsius.
+None.
 
 #### Example
 
@@ -364,6 +364,38 @@ if (IMU.temperatureAvailable())
   {
     int temperature_deg = 0;
     IMU.readTemperature(temperature_deg);
+
+    Serial.print("LSM6DSOX Temperature = ");
+    Serial.print(temperature_deg);
+    Serial.println(" °C");
+  }
+```
+
+### `readTemperatureFloat()`
+
+Reads the temperature from the sensor (Celsius).
+
+#### Syntax 
+
+```
+IMU.readTemperatureFloat(temperature_deg)
+```
+
+#### Parameters
+
+* _temperature_deg_: float variable where the temperature value will be stored.
+
+#### Returns
+
+None.
+
+#### Example
+
+```
+if (IMU.temperatureAvailable())
+  {
+    float temperature_deg = 0.0f;
+    IMU.readTemperatureFloat(temperature_deg);
 
     Serial.print("LSM6DSOX Temperature = ");
     Serial.print(temperature_deg);
