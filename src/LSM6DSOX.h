@@ -63,6 +63,8 @@ class LSM6DSOXClass {
     /**
      * @brief Query the IMU's accelerometer and return the acceleration in g's.
      * 
+     * The accelerometer is configured with a scale of [-4, +4] g.
+     * 
      * @param x float variable where the acceleration value in the IMU's x-axis will be stored.
      * @param y float variable where the acceleration value in the IMU's y-axis will be stored.
      * @param z float variable where the acceleration value in the IMU's z-axis will be stored.
@@ -87,6 +89,8 @@ class LSM6DSOXClass {
     // Gyroscope
     /**
      * @brief Query the IMU's gyroscope and return the angular speed in dps (degrees per second).
+     * 
+     * The gyroscope is configured with a scale of [-2000, +2000] dps.
      * 
      * @param x float variable where the gyroscope value in the IMU's x-axis will be stored.
      * @param y float variable where the gyroscope value in the IMU's y-axis will be stored.
