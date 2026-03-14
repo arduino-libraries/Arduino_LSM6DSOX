@@ -23,8 +23,22 @@
 
 class LSM6DSOXClass {
   public:
-    LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress);
-    LSM6DSOXClass(SPIClass& spi, int csPin, int irqPin);
+    enum AccelerometerDataRate {
+      ACCEL_RATE_POWER_DOWN,
+      ACCEL_RATE_12_5_HZ,
+      ACCEL_RATE_26_HZ,
+      ACCEL_RATE_52_HZ,
+      ACCEL_RATE_104_HZ,
+      ACCEL_RATE_208_HZ,
+      ACCEL_RATE_416_HZ,
+      ACCEL_RATE_833_HZ,
+      ACCEL_RATE_1660_HZ,
+      ACCEL_RATE_3330_HZ,
+      ACCEL_RATE_6660_HZ
+    };
+
+    LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress, AccelerometerDataRate dataRate = ACCEL_RATE_104_HZ);
+    LSM6DSOXClass(SPIClass& spi, int csPin, int irqPin, AccelerometerDataRate dataRate = ACCEL_RATE_104_HZ);
     ~LSM6DSOXClass();
 
     int begin();
@@ -49,6 +63,8 @@ class LSM6DSOXClass {
     int readRegister(uint8_t address);
     int readRegisters(uint8_t address, uint8_t* data, size_t length);
     int writeRegister(uint8_t address, uint8_t value);
+    int setAccelerometerDataRate(AccelerometerDataRate dataRate);
+    float accelerometerDataRateToFloat(AccelerometerDataRate dataRate) const;
 
 
   private:
@@ -57,6 +73,7 @@ class LSM6DSOXClass {
     uint8_t _slaveAddress;
     int _csPin;
     int _irqPin;
+    AccelerometerDataRate _accelerometerDataRate;
 
     SPISettings _spiSettings;
 };
