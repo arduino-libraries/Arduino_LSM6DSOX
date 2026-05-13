@@ -117,7 +117,7 @@ int LSM6DSOXClass::readAcceleration(float& x, float& y, float& z)
 {
   int16_t data[3];
 
-  if (!readRegisters(LSM6DSOX_OUTX_L_XL, (uint8_t*)data, sizeof(data))) {
+  if (readRegisters(LSM6DSOX_OUTX_L_XL, (uint8_t*)data, sizeof(data)) != 1) {
     x = NAN;
     y = NAN;
     z = NAN;
@@ -150,7 +150,7 @@ int LSM6DSOXClass::readGyroscope(float& x, float& y, float& z)
 {
   int16_t data[3];
 
-  if (!readRegisters(LSM6DSOX_OUTX_L_G, (uint8_t*)data, sizeof(data))) {
+  if (readRegisters(LSM6DSOX_OUTX_L_G, (uint8_t*)data, sizeof(data)) != 1) {
     x = NAN;
     y = NAN;
     z = NAN;
