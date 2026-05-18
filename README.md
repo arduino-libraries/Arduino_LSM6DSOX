@@ -69,9 +69,11 @@ If you encounter any issue, please open a bug report [here](https://github.com/a
 
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
-## 🤙 Contact
+## 🤙 Support
 
-For questions, comments, or feedback on this library, please create an issue on this repository.
+If you have questions about using the library, you can get assistance on Arduino Forum:
+
+https://forum.arduino.cc/
 
 ## ⚖️ License
 
