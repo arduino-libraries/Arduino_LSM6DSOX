@@ -150,7 +150,7 @@ class LSM6DSOXClass {
      * @brief Read multiple bytes from a register.
      * 
      * @param address The starting register address.
-     * @param data Pointer to a buffer to store the read data.
+     * @param data Pointer to a buffer in which to store the read data.
      * @param length The number of bytes to read.
      * @return 1 on success, 0 when the data could not be read,
                 -1 when the device was not found at the specified address.
