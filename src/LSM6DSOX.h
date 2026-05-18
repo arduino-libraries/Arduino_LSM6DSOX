@@ -133,7 +133,7 @@ class LSM6DSOXClass {
     /**
      * @brief Checks if temperature data is available.
      * 
-     * @return 1 on success, 0 on failure.
+     * @return 0 if no new temperature data is available, 1 if new temperature data is available.
      */
     int temperatureAvailable();
 
