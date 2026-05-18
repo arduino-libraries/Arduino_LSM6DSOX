@@ -137,6 +137,61 @@ class LSM6DSOXClass {
      */
     int temperatureAvailable();
 
+    // Pedometer
+    /**
+     * @brief Configure the pedometer features.
+     * 
+     * @param enable True to enable, false to disable.
+     * @param debounce Number of steps to debounce (default 10).
+     * @param int1Enable Route pedometer interrupt to INT1 pin.
+     * @param int2Enable Route pedometer interrupt to INT2 pin.
+     * @return true on success, false on failure.
+     */
+    bool configurePedometer(bool enable, uint8_t debounce = 10, bool int1Enable = false, bool int2Enable = false);
+
+    /**
+     * @brief Reset the step counter.
+     * 
+     * @return true on success, false on failure.
+     */
+    bool resetPedometer();
+
+    /**
+     * @brief Return the number of detected steps.
+     * 
+     * @return The number of steps on success, -1 on failure.
+     */
+    int pedometerSteps();
+
+  private:
+    /**
+     * @brief Modify bits in a register.
+     *
+     * @param address The register address.
+     * @param clearMask Bits to clear.
+     * @param setMask Bits to set.
+     * @return true on success, false on failure.
+     */
+    bool modifyRegisterBits(uint8_t address, uint8_t clearMask, uint8_t setMask);
+
+    /**
+     * @brief Select memory bank (user or embedded).
+     *
+     * @param bank Bank index (0 for user, 1 for embedded).
+     * @return true on success, false on failure.
+     */
+    bool setMemoryBank(uint8_t bank);
+
+    /**
+     * @brief Select embedded function page and read/write value.
+     *
+     * @param address 16-bit address (page in MSB, register in LSB).
+     * @param write True if writing, false if reading.
+     * @param value Pointer to variable to hold read value or value to write.
+     * @return true on success, false on failure.
+     */
+    bool selectPage(uint16_t address, bool write, uint8_t* value);
+
   private:
     /**
      * @brief Read a single byte from a register.

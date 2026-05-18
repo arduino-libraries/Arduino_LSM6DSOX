@@ -48,6 +48,46 @@
 #define LSM6DSOX_OUTZ_L_XL          0X2C
 #define LSM6DSOX_OUTZ_H_XL          0X2D
 
+#define LSM6DSOX_FUNC_CFG_ACCESS    0X01
+#define LSM6DSOX_MD1_CFG            0X5E
+#define LSM6DSOX_MD2_CFG            0X5F
+
+#define LSM6DSOX_PAGE_SEL           0X02
+#define LSM6DSOX_PAGE_ADDRESS       0X08
+#define LSM6DSOX_PAGE_VALUE         0X09
+#define LSM6DSOX_PAGE_RW            0X17
+
+#define LSM6DSOX_EMB_FUNC_EN_A      0X04
+#define LSM6DSOX_EMB_FUNC_EN_B      0X05
+#define LSM6DSOX_EMB_FUNC_INT1      0X0A
+#define LSM6DSOX_EMB_FUNC_INT2      0X0E
+#define LSM6DSOX_EMB_FUNC_SRC       0X64
+#define LSM6DSOX_STEP_COUNTER_L     0X62
+
+#define LSM6DSOX_PEDO_DEB_STEPS_CONF 0x0184
+
+#define LSM6DSOX_PEDO_EN_MASK       0x08
+#define LSM6DSOX_PEDO_RST_STEP_MASK 0x80
+#define LSM6DSOX_PEDO_INT_MASK      0x08
+#define LSM6DSOX_INT_EMB_FUNC_MASK  0x02
+
+#define LSM6DSOX_FUNC_CFG_BANK_USER  0
+#define LSM6DSOX_FUNC_CFG_BANK_EMBED 1
+
+
+namespace {
+  constexpr uint8_t MEMORY_BANK_MASK = 0xC0;
+  constexpr uint8_t MEMORY_BANK_SHIFT = 6;
+
+  constexpr uint8_t PAGE_MSB_MASK = 0x0F;
+  constexpr uint8_t PAGE_LSB_MASK = 0xFF;
+  constexpr uint8_t PAGE_SHIFT = 4;
+  constexpr uint8_t PAGE_ENABLE_BIT = 0x01;
+
+  constexpr uint8_t PAGE_WRITE_BIT = 0x40;
+  constexpr uint8_t PAGE_READ_BIT = 0x20;
+  constexpr uint8_t PAGE_RW_MASK = 0x60;
+}
 
 LSM6DSOXClass::LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress) :
   _wire(&wire),
@@ -273,6 +313,81 @@ int LSM6DSOXClass::writeRegister(uint8_t address, uint8_t value)
     }
   }
   return 1;
+}
+
+bool LSM6DSOXClass::modifyRegisterBits(uint8_t address, uint8_t clearMask, uint8_t setMask) {
+  int value = readRegister(address);
+  if (value < 0) {
+    return false;
+  }
+  return writeRegister(address, (value & ~clearMask) | setMask) == 1;
+}
+
+bool LSM6DSOXClass::setMemoryBank(uint8_t bank) {
+  return modifyRegisterBits(LSM6DSOX_FUNC_CFG_ACCESS, MEMORY_BANK_MASK, bank << MEMORY_BANK_SHIFT);
+}
+
+bool LSM6DSOXClass::selectPage(uint16_t address, bool write, uint8_t* value) {
+  uint8_t msb = (address >> 8) & PAGE_MSB_MASK;
+  uint8_t lsb = address & PAGE_LSB_MASK;
+
+  if (!setMemoryBank(LSM6DSOX_FUNC_CFG_BANK_EMBED)) return false;
+
+  uint8_t rwBit = write ? PAGE_WRITE_BIT : PAGE_READ_BIT;
+  if (!modifyRegisterBits(LSM6DSOX_PAGE_RW, PAGE_RW_MASK, rwBit)) return false;
+
+  if (!writeRegister(LSM6DSOX_PAGE_SEL, (msb << PAGE_SHIFT) | PAGE_ENABLE_BIT)) return false;
+  if (!writeRegister(LSM6DSOX_PAGE_ADDRESS, lsb)) return false;
+
+  if (write) {
+    if (!writeRegister(LSM6DSOX_PAGE_VALUE, *value)) return false;
+  } else {
+    int val = readRegister(LSM6DSOX_PAGE_VALUE);
+    if (val < 0) return false;
+    *value = val;
+  }
+
+  if (!writeRegister(LSM6DSOX_PAGE_SEL, PAGE_ENABLE_BIT)) return false;
+  if (!modifyRegisterBits(LSM6DSOX_PAGE_RW, rwBit, 0x00)) return false; // Clear the rw bit
+
+  return setMemoryBank(LSM6DSOX_FUNC_CFG_BANK_USER);
+}
+
+bool LSM6DSOXClass::configurePedometer(bool enable, uint8_t debounce, bool int1Enable, bool int2Enable) {
+  // Select page to set debounce
+  if (!selectPage(LSM6DSOX_PEDO_DEB_STEPS_CONF, true, &debounce)) return false;
+
+  if (int1Enable) {
+    if (!modifyRegisterBits(LSM6DSOX_MD1_CFG, 0, LSM6DSOX_INT_EMB_FUNC_MASK)) return false;
+  }
+  if (int2Enable) {
+    if (!modifyRegisterBits(LSM6DSOX_MD2_CFG, 0, LSM6DSOX_INT_EMB_FUNC_MASK)) return false;
+  }
+
+  if (!setMemoryBank(LSM6DSOX_FUNC_CFG_BANK_EMBED)) return false;
+
+  if (!modifyRegisterBits(LSM6DSOX_EMB_FUNC_EN_A, LSM6DSOX_PEDO_EN_MASK, enable ? LSM6DSOX_PEDO_EN_MASK : 0)) return false;
+  if (!modifyRegisterBits(LSM6DSOX_EMB_FUNC_INT1, LSM6DSOX_PEDO_INT_MASK, int1Enable ? LSM6DSOX_PEDO_INT_MASK : 0)) return false;
+  if (!modifyRegisterBits(LSM6DSOX_EMB_FUNC_INT2, LSM6DSOX_PEDO_INT_MASK, int2Enable ? LSM6DSOX_PEDO_INT_MASK : 0)) return false;
+
+  return setMemoryBank(LSM6DSOX_FUNC_CFG_BANK_USER);
+}
+
+bool LSM6DSOXClass::resetPedometer() {
+  if (!setMemoryBank(LSM6DSOX_FUNC_CFG_BANK_EMBED)) return false;
+  if (!modifyRegisterBits(LSM6DSOX_EMB_FUNC_SRC, 0, LSM6DSOX_PEDO_RST_STEP_MASK)) return false;
+  return setMemoryBank(LSM6DSOX_FUNC_CFG_BANK_USER);
+}
+
+int LSM6DSOXClass::pedometerSteps() {
+  if (!setMemoryBank(LSM6DSOX_FUNC_CFG_BANK_EMBED)) return -1;
+
+  uint8_t data[2];
+  if (readRegisters(LSM6DSOX_STEP_COUNTER_L, data, sizeof(data)) != 1) return -1;
+
+  if (!setMemoryBank(LSM6DSOX_FUNC_CFG_BANK_USER)) return -1;
+
+  return data[0] | (data[1] << 8);
 }
 
 #ifdef LSM6DS_DEFAULT_SPI
