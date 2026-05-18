@@ -43,7 +43,11 @@ LSM6DSOXClass myIMU_SPI = LSM6DSOXClass(SPI, 10, 2);
 
 ## ⚙️ Installation
 
-The easiest way is to use the Arduino IDE or the Arduino CLI. As for the latter option you can install it with `arduino-cli lib install Arduino_LSM6DSOX`. You may need to update the index beforehand `arduino-cli lib update-index`.
+The library is preinstalled in [**Arduino Cloud Editor**](https://docs.arduino.cc/arduino-cloud/guides/cloud-editor).
+
+Arduino IDE users can install it via [Library Manager](https://docs.arduino.cc/software/ide-v2/tutorials/ide-v2-installing-a-library#installing-a-library).
+
+Arduino CLI can install it with `arduino-cli lib install Arduino_LSM6DSOX`. You may need to update the index beforehand using `arduino-cli lib update-index`.
 
 ## 🧑‍💻 Developer Installation
 
