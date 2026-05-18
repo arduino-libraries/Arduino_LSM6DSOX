@@ -6,7 +6,7 @@
 
 This library allows you to read accelerometer, gyroscope, and temperature values from the **LSM6DSOX** IMU.
 
-## ✨ Features
+## 🌟 Features
 
 This library supports the API exposed by the LSM6DSOX sensor over I2C and SPI.
 
