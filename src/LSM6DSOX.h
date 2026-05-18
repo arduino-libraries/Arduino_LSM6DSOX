@@ -153,7 +153,7 @@ class LSM6DSOXClass {
      * @param data Pointer to a buffer in which to store the read data.
      * @param length The number of bytes to read.
      * @return 1 on success, 0 when the length of the register data does not match the value of the length parameter,
-                -1 when the device was not found at the specified address.
+                -1 when a failure occurred while reading the register.
      */
     int readRegisters(uint8_t address, uint8_t* data, size_t length);
 
