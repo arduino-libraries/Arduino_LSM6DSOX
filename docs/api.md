@@ -83,7 +83,7 @@ IMU.end();
 
 ### `readAcceleration()`
 
-Query the IMU's accelerometer and return the acceleration in g's. 
+Query the IMU's accelerometer and return the acceleration in g's. The accelerometer is configured with a scale of [-4, +4] g. 
 
 #### Syntax 
 
@@ -129,7 +129,7 @@ if (IMU.accelerationAvailable()) {
 
 ### `readGyroscope()`
 
-Query the IMU's gyroscope and return the angular speed in dps (degrees per second).
+Query the IMU's gyroscope and return the angular speed in dps (degrees per second). The gyroscope is configured with a scale of [-2000, +2000] dps.
 
 #### Syntax 
 
