@@ -29,7 +29,9 @@ For more information on the features of this library and how to use them, please
 
 The library should work on any board that uses a modern Arduino core. It requires either an I2C or SPI interface to connect to an LSM6DSOX sensor.
 
-On supported boards, the default `IMU` variable uses the standard `Wire` interface. Other boards can declare their own instance of `LSM6DSOXClass` using custom I2C or SPI pins. e.g.
+## 📞 Communication Interface
+
+The default `IMU` variable uses the standard `Wire` interface. If the IMU is connected to a different interface, an instance of `LSM6DSOXClass` can be declared using custom I2C or SPI pins. e.g.
 
 ```cpp
 // Custom I2C device
