@@ -142,7 +142,7 @@ class LSM6DSOXClass {
      * @brief Read a single byte from a register.
      * 
      * @param address The register address.
-     * @return The value of the register, or 0 on failure.
+     * @return The value of the register, or -1 on failure.
      */
     int readRegister(uint8_t address);
 
