@@ -80,7 +80,6 @@ int LSM6DSOXClass::begin()
   }
 
   if (!(readRegister(LSM6DSOX_WHO_AM_I_REG) == 0x6C || readRegister(LSM6DSOX_WHO_AM_I_REG) == 0x69)) {
-    end();
     return 0;
   }
 
@@ -103,13 +102,11 @@ int LSM6DSOXClass::begin()
 void LSM6DSOXClass::end()
 {
   if (_spi != NULL) {
-    _spi->end();
     digitalWrite(_csPin, LOW);
     pinMode(_csPin, INPUT);
   } else {
     writeRegister(LSM6DSOX_CTRL2_G, 0x00);
     writeRegister(LSM6DSOX_CTRL1_XL, 0x00);
-    _wire->end();
   }
 }
 
