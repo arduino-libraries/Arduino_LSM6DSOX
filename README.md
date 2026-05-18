@@ -19,7 +19,7 @@ This library supports the API exposed by the LSM6DSOX sensor over I2C and SPI.
     - Check available samples
     - Get sampling rate
 - 🌡 **Temperature Sensor Control**
-    - Read temperature (integer or float formats)
+    - Read temperature (in °C, integer or float formats)
     - Check availability of temperature samples
 
 ## 📖 Documentation
