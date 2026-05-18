@@ -48,19 +48,20 @@
 #define LSM6DSOX_OUTZ_L_XL          0X2C
 #define LSM6DSOX_OUTZ_H_XL          0X2D
 
-
-LSM6DSOXClass::LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress) :
+LSM6DSOXClass::LSM6DSOXClass(TwoWire& wire, uint8_t slaveAddress, AccelerometerDataRate dataRate) :
   _wire(&wire),
   _spi(NULL),
-  _slaveAddress(slaveAddress)
+  _slaveAddress(slaveAddress),
+  _accelerometerDataRate(dataRate)
 {
 }
 
-LSM6DSOXClass::LSM6DSOXClass(SPIClass& spi, int csPin, int irqPin) :
+LSM6DSOXClass::LSM6DSOXClass(SPIClass& spi, int csPin, int irqPin, AccelerometerDataRate dataRate) :
   _wire(NULL),
   _spi(&spi),
   _csPin(csPin),
   _irqPin(irqPin),
+  _accelerometerDataRate(dataRate),
   _spiSettings(10E6, MSBFIRST, SPI_MODE0)
 {
 }
@@ -89,7 +90,8 @@ int LSM6DSOXClass::begin()
 
   // Set the Accelerometer control register to work at 104 Hz, 4 g,and in bypass mode and enable ODR/4
   // low pass filter (check figure9 of LSM6DSOX's datasheet)
-  writeRegister(LSM6DSOX_CTRL1_XL, 0x4A);
+  // writeRegister(LSM6DSOX_CTRL1_XL, 0x4A);
+  setAccelerometerDataRate(_accelerometerDataRate);
 
   // set gyroscope power mode to high performance and bandwidth to 16 MHz
   writeRegister(LSM6DSOX_CTRL7_G, 0x00);
@@ -143,7 +145,7 @@ int LSM6DSOXClass::accelerationAvailable()
 
 float LSM6DSOXClass::accelerationSampleRate()
 {
-  return 104.0F;
+  return accelerometerDataRateToFloat(_accelerometerDataRate);
 }
 
 int LSM6DSOXClass::readGyroscope(float& x, float& y, float& z)
@@ -273,6 +275,81 @@ int LSM6DSOXClass::writeRegister(uint8_t address, uint8_t value)
     }
   }
   return 1;
+}
+
+int LSM6DSOXClass::setAccelerometerDataRate(AccelerometerDataRate dataRate)
+{
+  uint8_t value = 0;
+
+  switch (dataRate) {
+    case ACCEL_RATE_POWER_DOWN:
+      value = 0x00;
+      break;
+    case ACCEL_RATE_12_5_HZ:
+      value = 0x10;
+      break;
+    case ACCEL_RATE_26_HZ:
+      value = 0x20;
+      break;
+    case ACCEL_RATE_52_HZ:
+      value = 0x30;
+      break;
+    case ACCEL_RATE_104_HZ:
+      value = 0x40;
+      break;
+    case ACCEL_RATE_208_HZ:
+      value = 0x50;
+      break;
+    case ACCEL_RATE_416_HZ:
+      value = 0x60;
+      break;
+    case ACCEL_RATE_833_HZ:
+      value = 0x70;
+      break;
+    case ACCEL_RATE_1660_HZ:
+      value = 0x80;
+      break;
+    case ACCEL_RATE_3330_HZ:
+      value = 0x90;
+      break;
+    case ACCEL_RATE_6660_HZ:
+      value = 0xA0;
+      break;
+    default:
+      return -1;
+  }
+
+  return writeRegister(LSM6DSOX_CTRL1_XL, value);
+}
+
+float LSM6DSOXClass::accelerometerDataRateToFloat(AccelerometerDataRate dataRate) const
+{
+  switch (dataRate) {
+    case ACCEL_RATE_POWER_DOWN:
+      return 0.0F;
+    case ACCEL_RATE_12_5_HZ:
+      return 12.5F;
+    case ACCEL_RATE_26_HZ:
+      return 26.0F;
+    case ACCEL_RATE_52_HZ:
+      return 52.0F;
+    case ACCEL_RATE_104_HZ:
+      return 104.0F;
+    case ACCEL_RATE_208_HZ:
+      return 208.0F;
+    case ACCEL_RATE_416_HZ:
+      return 416.0F;
+    case ACCEL_RATE_833_HZ:
+      return 833.0F;
+    case ACCEL_RATE_1660_HZ:
+      return 1660.0F;
+    case ACCEL_RATE_3330_HZ:
+      return 3330.0F;
+    case ACCEL_RATE_6660_HZ:
+      return 6660.0F;
+    default:
+      return 104.0F;
+  }
 }
 
 #ifdef LSM6DS_DEFAULT_SPI
