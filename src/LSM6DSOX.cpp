@@ -71,12 +71,16 @@ LSM6DSOXClass::~LSM6DSOXClass()
 
 int LSM6DSOXClass::begin()
 {
+  // The sketch is responsible for initialising the bus (Wire.begin() / SPI.begin())
+  // before calling begin(). The library deliberately does NOT call _wire->begin() /
+  // _spi->begin() here: on some cores (e.g. Renesas / UNO R4) TwoWire::begin()
+  // unconditionally resets the I2C clock to 100 kHz, which silently overrides a
+  // user-configured bus speed and disturbs other devices sharing the bus. Leaving
+  // bus lifecycle to the sketch mirrors the removal of the matching teardown in
+  // begin()/end() (see PR #51). See issue #53.
   if (_spi != NULL) {
     pinMode(_csPin, OUTPUT);
     digitalWrite(_csPin, HIGH);
-    _spi->begin();
-  } else {
-    _wire->begin();
   }
 
   if (!(readRegister(LSM6DSOX_WHO_AM_I_REG) == 0x6C || readRegister(LSM6DSOX_WHO_AM_I_REG) == 0x69)) {

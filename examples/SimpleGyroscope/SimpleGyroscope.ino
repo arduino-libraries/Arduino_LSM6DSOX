@@ -15,10 +15,13 @@
 */
 
 #include <Arduino_LSM6DSOX.h>
+#include <Wire.h>
 
 void setup() {
   Serial.begin(9600);
   while (!Serial);
+
+  Wire.begin();   // bring up the I2C bus before IMU.begin()
 
   if (!IMU.begin()) {
     Serial.println("Failed to initialize IMU!");
